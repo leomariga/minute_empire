@@ -2,6 +2,7 @@ version: '3.8'
 
 services:
   frontend:
+    container_name: minute-empire-frontend
     build:
       context: ../frontend
       dockerfile: Dockerfile
@@ -13,22 +14,31 @@ services:
       - app-network
 
   backend:
+    container_name: minute-empire-backend
     build:
       context: ../backend
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
     environment:
-      - MONGODB_URI=mongodb://mongodb:27017/minute_empire
+      - MONGO_USER=${MONGO_USER}
+      - MONGO_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_DB=${MONGO_DB}
+      - DOCKER_ENV=true
     depends_on:
       - mongodb
     networks:
       - app-network
 
   mongodb:
+    container_name: minute-empire-mongodb
     image: mongo:latest
     ports:
       - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_USER}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_PASSWORD}
+      - MONGO_INITDB_DATABASE=${MONGO_DB}
     volumes:
       - mongodb_data:/data/db
     networks:
