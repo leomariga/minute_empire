@@ -29,7 +29,7 @@ load_dotenv(dotenv_path=env_path)
 MONGO_USER = os.getenv("MONGO_USER")
 MONGO_PASSWORD = os.getenv("MONGO_PASSWORD")
 MONGO_DB = os.getenv("MONGO_DB")
-DATABASE_NAME = os.getenv("DATABASE_NAME")
+DATABASE_NAME = os.getenv("DATABASE_NAME") or MONGO_DB  # Use MONGO_DB as fallback
 
 # Construct MongoDB URI
 # Use localhost for direct connections, mongodb for docker-compose connections
@@ -37,6 +37,7 @@ host = "mongodb" if os.getenv("DOCKER_ENV") else "localhost"
 MONGODB_URI = f"mongodb://{MONGO_USER}:{MONGO_PASSWORD}@{host}:27017/{MONGO_DB}?authSource=admin"
 
 print(f"Connecting to MongoDB at: {host}:27017 with user {MONGO_USER} and database {MONGO_DB}")
+print(f"Using database name: {DATABASE_NAME}")
 
 # MongoDB client instance (async)
 async_client = None

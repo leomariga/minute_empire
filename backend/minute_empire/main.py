@@ -35,6 +35,7 @@ async def register_user(registration: RegistrationRequest):
     - **village_name**: Name for the user's first village (3-50 characters)
     """
     try:
+        print(f"Received registration request: {registration}")
         # Call the create_user_and_village function
         result = await create_user_and_village(
             username=registration.username,
