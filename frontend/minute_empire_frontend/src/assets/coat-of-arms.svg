@@ -1,0 +1,38 @@
+<svg width="200" height="240" viewBox="0 0 200 240" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Shield Base -->
+  <path d="M100 10C140 10 170 20 180 30C190 85 190 170 100 230C10 170 10 85 20 30C30 20 60 10 100 10Z" fill="#D4AF37" stroke="#8B4513" stroke-width="4"/>
+  
+  <!-- Shield Interior -->
+  <path d="M100 20C135 20 160 28 170 38C179 88 179 165 100 220C21 165 21 88 30 38C40 28 65 20 100 20Z" fill="#F5F5DC" stroke="#8B4513" stroke-width="1"/>
+  
+  <!-- Vertical Divide -->
+  <path d="M100 20V220" stroke="#8B4513" stroke-width="3"/>
+  
+  <!-- Horizontal Divide -->
+  <path d="M30 90H170" stroke="#8B4513" stroke-width="3"/>
+  
+  <!-- Quadrant Elements -->
+  <!-- Top Left - Crown -->
+  <path d="M50 50L60 60L65 45L70 60L75 45L80 60L85 45L90 60L65 70" fill="none" stroke="#8B4513" stroke-width="2"/>
+  
+  <!-- Top Right - Castle Tower -->
+  <path d="M125 40H155V75H125V40Z" fill="none" stroke="#8B4513" stroke-width="2"/>
+  <path d="M125 50H155" stroke="#8B4513" stroke-width="2"/>
+  <path d="M130 40V35M140 40V35M150 40V35" stroke="#8B4513" stroke-width="2"/>
+  <path d="M135 75V60H145V75" fill="none" stroke="#8B4513" stroke-width="2"/>
+  
+  <!-- Bottom Left - Lion -->
+  <path d="M40 120C45 115 55 115 60 120C65 125 65 135 60 140" fill="none" stroke="#8B4513" stroke-width="2"/>
+  <path d="M50 130C55 125 65 125 70 130C75 135 75 145 70 150" fill="none" stroke="#8B4513" stroke-width="2"/>
+  <path d="M45 145C50 140 60 140 65 145C70 150 70 160 65 165" fill="none" stroke="#8B4513" stroke-width="2"/>
+  <path d="M60 165L65 180L70 165" fill="none" stroke="#8B4513" stroke-width="2"/>
+  <circle cx="45" cy="125" r="3" fill="#8B4513"/>
+  
+  <!-- Bottom Right - Tree -->
+  <path d="M140 120L130 145L150 145L140 120Z" fill="none" stroke="#8B4513" stroke-width="2"/>
+  <path d="M140 145L130 170L150 170L140 145Z" fill="none" stroke="#8B4513" stroke-width="2"/>
+  <path d="M140 170V190" stroke="#8B4513" stroke-width="2"/>
+  
+  <!-- Banner Ribbon -->
+  <path d="M40 230C40 225 60 220 100 220C140 220 160 225 160 230C160 235 140 240 100 240C60 240 40 235 40 230Z" fill="#D4AF37" stroke="#8B4513" stroke-width="2"/>
+</svg> 

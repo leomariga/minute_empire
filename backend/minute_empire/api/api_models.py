@@ -21,3 +21,34 @@ class RegistrationResponse(BaseModel):
     message: str
     user_id: str
     village_id: str
+
+# Authentication models
+class LoginRequest(BaseModel):
+    username: str = Field(..., description="User's username")
+    password: str = Field(..., description="User's password")
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    username: str
+    family_name: str
+
+# User models
+class UserBase(BaseModel):
+    username: str
+    family_name: str
+    color: str
+
+class UserResponse(UserBase):
+    id: str
+
+# Village models
+class VillageResponse(BaseModel):
+    id: str
+    name: str
+    location: dict
+    owner_id: str
+    resources: dict
+    city: dict
+    created_at: str

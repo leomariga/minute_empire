@@ -1,0 +1,50 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="95" fill="#87CEEB" stroke="#4682B4" stroke-width="2"/>
+  
+  <!-- Sun -->
+  <circle cx="50" cy="40" r="15" fill="#FFD700"/>
+  <path d="M50 20V15M30 30L25 25M20 50H15M30 70L25 75M50 80V85M70 70L75 75M80 50H85M70 30L75 25" stroke="#FFD700" stroke-width="2"/>
+  
+  <!-- Ground -->
+  <path d="M20 140C20 140 40 130 60 140C80 150 100 140 120 130C140 120 160 130 180 135V190H20V140Z" fill="#8B4513"/>
+  <path d="M20 140C20 140 40 130 60 140C80 150 100 140 120 130C140 120 160 130 180 135" stroke="#8B4513" stroke-width="2"/>
+  
+  <!-- Main Castle/Keep -->
+  <rect x="80" y="70" width="40" height="70" fill="#D3D3D3" stroke="#696969" stroke-width="2"/>
+  <path d="M75 70H125V80H75V70Z" fill="#A9A9A9" stroke="#696969" stroke-width="2"/>
+  <rect x="95" y="110" width="10" height="30" fill="#8B4513" stroke="#696969" stroke-width="1"/>
+  
+  <!-- Castle Towers -->
+  <rect x="70" y="80" width="15" height="60" fill="#D3D3D3" stroke="#696969" stroke-width="2"/>
+  <path d="M65 80H90V90H65V80Z" fill="#A9A9A9" stroke="#696969" stroke-width="2"/>
+  <rect x="115" y="80" width="15" height="60" fill="#D3D3D3" stroke="#696969" stroke-width="2"/>
+  <path d="M110 80H135V90H110V80Z" fill="#A9A9A9" stroke="#696969" stroke-width="2"/>
+  
+  <!-- Tower Details - Crenellations -->
+  <path d="M70 80V75M75 80V75M80 80V75M85 80V75" stroke="#696969" stroke-width="2"/>
+  <path d="M115 80V75M120 80V75M125 80V75M130 80V75" stroke="#696969" stroke-width="2"/>
+  <path d="M80 70V65M90 70V65M100 70V65M110 70V65M120 70V65" stroke="#696969" stroke-width="2"/>
+  
+  <!-- Houses -->
+  <!-- House 1 -->
+  <rect x="30" y="110" width="20" height="30" fill="#CD853F" stroke="#8B4513" stroke-width="2"/>
+  <path d="M25 110L40 95L55 110H25Z" fill="#A52A2A" stroke="#8B4513" stroke-width="2"/>
+  <rect x="35" y="125" width="10" height="15" fill="#8B4513" stroke="#8B4513" stroke-width="1"/>
+  
+  <!-- House 2 -->
+  <rect x="150" y="115" width="20" height="25" fill="#CD853F" stroke="#8B4513" stroke-width="2"/>
+  <path d="M145 115L160 100L175 115H145Z" fill="#A52A2A" stroke="#8B4513" stroke-width="2"/>
+  <rect x="155" y="125" width="10" height="15" fill="#8B4513" stroke="#8B4513" stroke-width="1"/>
+  
+  <!-- Trees -->
+  <path d="M50 120L40 140H60L50 120Z" fill="#228B22" stroke="#006400" stroke-width="1"/>
+  <path d="M50 140V150" stroke="#8B4513" stroke-width="2"/>
+  
+  <path d="M150 95L140 115H160L150 95Z" fill="#228B22" stroke="#006400" stroke-width="1"/>
+  <path d="M150 115V125" stroke="#8B4513" stroke-width="2"/>
+  
+  <!-- Farm Fields -->
+  <path d="M130 140H160V155H130V140Z" fill="#DAA520" stroke="#B8860B" stroke-width="1"/>
+  <path d="M130 140L160 155M130 155L160 140" stroke="#B8860B" stroke-width="1"/>
+</svg> 

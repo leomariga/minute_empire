@@ -70,47 +70,6 @@ def get_database() -> AsyncIOMotorDatabase:
     """Return async database instance."""
     return async_db
 
-async def create_user(username: str, password: str, family_name: str, color: str) -> Dict:
-    """Create a new user.
-    
-    Args:
-        username: Username (min length 3, max length 50)
-        password: Password (min length 8)
-        family_name: Family name (min length 2, max length 50)
-        color: Hex color code for the user
-        
-    Returns:
-        Dict: Created user data (without password)
-    """
-    db = await connect_to_mongodb()
-    users_collection = db["users"]
-    
-    # Check if user already exists
-    existing_user = await users_collection.find_one({"username": username})
-    if existing_user:
-        raise ValueError(f"User {username} already exists!")
-    
-    # Create user document
-    now = datetime.utcnow()
-    user_in_db = UserInDB(
-        _id=str(ObjectId()),
-        username=username,
-        password=password,
-        family_name=family_name,
-        color=color,
-        created_at=now,
-        updated_at=now
-    )
-    
-    # Insert user
-    await users_collection.insert_one(user_in_db.dict(by_alias=True))
-    print(f"Created user: {username}")
-    
-    # Return user data without password
-    user_dict = user_in_db.dict(by_alias=True)
-    user_dict.pop("password")
-    return user_dict
-
 async def get_all_users() -> List[Dict]:
     """Get all users.
     
@@ -130,56 +89,3 @@ async def get_all_users() -> List[Dict]:
             user.pop("password")
     
     return users
-
-async def initialize_village(owner_id: str, name: str, location: Location) -> VillageInDB:
-    """Create a new village for a user.
-    
-    Args:
-        owner_id: ID of the user who owns the village
-        name: Name of the village
-        location: Location coordinates for the village
-        
-    Returns:
-        VillageInDB: Created village data
-    """
-    db = await connect_to_mongodb()
-    villages_collection = db["villages"]
-    
-    # Check if location is already occupied
-    existing_village = await villages_collection.find_one({
-        "location.x": location.x,
-        "location.y": location.y
-    })
-    if existing_village:
-        raise ValueError(f"Location {location} is already occupied!")
-    
-    # Create 20 empty resource fields using list comprehension
-    initial_fields = [ResourceField(type=ResourceFieldType.EMPTY, level=0) for _ in range(20)]
-    
-    # Create a City with a wall, a city center, and 24 additional empty construction slots
-    initial_city = City(
-        wall=Construction(type=ConstructionType.WALL, level=0),
-        constructions=[
-            Construction(type=ConstructionType.CITY_CENTER, level=0),  # First slot is the city center
-            *[Construction(type=ConstructionType.EMPTY, level=0) for _ in range(24)]  # 24 empty slots
-        ]
-    )
-    
-    # Create village document
-    now = datetime.utcnow()
-    village_doc = {
-        "_id": str(ObjectId()),
-        "name": name,
-        "location": location.dict(),
-        "owner_id": owner_id,
-        "resource_fields": [field.dict() for field in initial_fields],
-        "resources": Resources().dict(),
-        "city": initial_city.dict(),
-        "created_at": now,
-        "updated_at": now
-    }
-    
-    # Insert village
-    await villages_collection.insert_one(village_doc)
-    print(f"Created village '{name}' for user {owner_id} at location {location}")
-    return VillageInDB(**village_doc) 

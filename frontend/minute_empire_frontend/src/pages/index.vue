@@ -1,11 +1,11 @@
 <template>
-  <v-container class="bg-theme fill-height pa-0">
+  <v-container class="bg-theme fill-height pa-0 pa-sm-4">
     <v-responsive class="fill-height">
-      <v-row align="center" justify="center" class="fill-height">
-        <v-col cols="12" sm="10" md="8" lg="6">
-          <div class="text-center mb-6">
-            <h1 class="text-h2 font-weight-bold text-white">Minute Empire</h1>
-            <p class="text-subtitle-1 text-white">Build your empire and conquer the world</p>
+      <v-row align="center" justify="center" class="fill-height ma-0">
+        <v-col cols="12" sm="10" md="8" lg="6" class="pa-0 pa-sm-2">
+          <div class="text-center mb-4">
+            <h1 class="text-h3 text-sm-h2 font-weight-bold app-title">Minute Empire</h1>
+            <p class="text-body-2 text-sm-subtitle-1 app-subtitle">Build your empire and conquer the world</p>
           </div>
           <registration-form @registered="onRegistered" />
         </v-col>
@@ -54,6 +54,43 @@ function onRegistered(data) {
 
 <style scoped>
 .bg-theme {
-  background: white
+  background-color: #f0f0f0;
+  overflow-x: hidden;
+}
+
+.app-title {
+  color: #1B5E20;
+  margin-bottom: 8px;
+}
+
+.app-subtitle {
+  color: #2E7D32;
+}
+
+.v-card {
+  background-color: #ffffff !important;
+  border: 1px solid #e0e0e0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+  transition: all 0.3s ease;
+}
+
+.v-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Make stepper transparent on mobile */
+@media (max-width: 600px) {
+  .v-stepper {
+    background-color: transparent !important;
+  }
+  
+  .v-stepper-header {
+    box-shadow: none !important;
+  }
+  
+  .app-title {
+    font-size: 1.75rem !important;
+  }
 }
 </style>

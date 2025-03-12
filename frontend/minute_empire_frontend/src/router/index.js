@@ -1,4 +1,3 @@
-
 /**
  * router/index.ts
  *
@@ -6,12 +5,77 @@
  */
 
 // Composables
-import { createRouter, createWebHistory } from 'vue-router/auto'
-import { routes } from 'vue-router/auto-routes'
+import { createRouter, createWebHistory } from 'vue-router'
+import authService from '@/services/authService'
 
+// Define routes
+const routes = [
+  {
+    path: '/',
+    name: 'Home',
+    component: () => import('@/views/Home.vue')
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/LoginView.vue'),
+    meta: { 
+      guest: true 
+    }
+  },
+  {
+    path: '/register',
+    name: 'Register',
+    component: () => import('@/views/RegisterView.vue'),
+    meta: { 
+      guest: true 
+    }
+  },
+  {
+    path: '/village',
+    name: 'Village',
+    component: () => import('@/views/VillageView.vue'),
+    meta: { 
+      requiresAuth: true 
+    }
+  },
+  // Catch-all redirect to home
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/'
+  }
+]
+
+// Create router instance
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL),
-  routes,
+  history: createWebHistory(process.env.BASE_URL),
+  routes
+})
+
+// Navigation guard for authentication
+router.beforeEach((to, from, next) => {
+  // Check for pages that require authentication
+  if (to.matched.some(record => record.meta.requiresAuth)) {
+    if (!authService.isAuthenticated()) {
+      // Redirect to login if not authenticated
+      next({
+        path: '/login',
+        query: { redirect: to.fullPath }
+      })
+    } else {
+      next()
+    }
+  } 
+  // Check for guest pages (should redirect to village if already logged in)
+  else if (to.matched.some(record => record.meta.guest)) {
+    if (authService.isAuthenticated()) {
+      next({ path: '/village' })
+    } else {
+      next()
+    }
+  } else {
+    next()
+  }
 })
 
 // Workaround for https://github.com/vitejs/vite/issues/11804
