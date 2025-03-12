@@ -29,3 +29,8 @@ Instructions for development setup will be added here.
 ## Deployment
 
 Docker configurations are provided for easy deployment. 
+
+
+docker-compose down
+docker-compose build
+docker-compose up -d

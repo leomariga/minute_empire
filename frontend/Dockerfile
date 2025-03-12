@@ -1,30 +1,34 @@
 # Build stage
-FROM node:20-alpine as build-stage
+FROM node:18-alpine as build-stage
 
+# Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Change to the minute_empire_frontend directory
+WORKDIR /app/minute_empire_frontend
+
+# Copy package.json and package-lock.json
+COPY minute_empire_frontend/package*.json ./
 
 # Install dependencies
 RUN npm install
 
 # Copy project files
-COPY . .
+COPY minute_empire_frontend/ .
 
-# Build the app
+# Build app
 RUN npm run build
 
 # Production stage
 FROM nginx:stable-alpine as production-stage
 
-# Copy built files from the build stage
-COPY --from=build-stage /app/dist /usr/share/nginx/html
+# Copy built files from build stage
+COPY --from=build-stage /app/minute_empire_frontend/dist /usr/share/nginx/html
 
-# Copy custom nginx configuration if needed
-# COPY ./nginx.conf /etc/nginx/conf.d/default.conf
+# Copy custom nginx config if needed
+# COPY nginx.conf /etc/nginx/conf.d/default.conf
 
-# Expose port 80
+# Expose port
 EXPOSE 80
 
 # Start nginx
