@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from typing import Optional
 
-from minute_empire.core.registration import create_user_and_village
-from minute_empire.core.authentication import authenticate_user, create_access_token, get_user_by_id, get_user_villages
+from minute_empire.services.registration_service import RegistrationService
+from minute_empire.services.authentication_service import AuthenticationService
 from minute_empire.api.api_models import (
     RegistrationRequest, 
     RegistrationResponse, 
@@ -32,6 +32,10 @@ app.add_middleware(
 # OAuth2 scheme for JWT
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
+# Initialize services
+auth_service = AuthenticationService()
+registration_service = RegistrationService()
+
 @app.get("/")
 async def root():
     return {"message": "Welcome to Minute Empire API"}
@@ -48,8 +52,8 @@ async def register_user(registration: RegistrationRequest, response: Response):
     - **village_name**: Name for the user's first village (3-50 characters)
     """
     try:
-        # Call the create_user_and_village function
-        result = await create_user_and_village(
+        # Use registration service to create user and village
+        result = await registration_service.register_user_and_village(
             username=registration.username,
             password=registration.password,
             family_name=registration.family_name,
@@ -62,8 +66,8 @@ async def register_user(registration: RegistrationRequest, response: Response):
         village_id = result["village_id"]
         
         # Create JWT token for automatic login
-        user_data = await get_user_by_id(user_id)
-        token = create_access_token({"sub": user_id})
+        user_data = await auth_service.get_user_by_id(user_id)
+        token = auth_service.create_access_token({"sub": user_id})
         
         # Set cookie with token
         response.set_cookie(
@@ -96,11 +100,14 @@ async def login(login_request: LoginRequest, response: Response):
     - **password**: User's password
     """
     try:
-        # Authenticate user
-        user = await authenticate_user(login_request.username, login_request.password)
+        # Authenticate user using the service
+        user = await auth_service.authenticate_user(login_request.username, login_request.password)
+        
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
         
         # Create access token
-        token = create_access_token({"sub": user["_id"]})
+        token = auth_service.create_access_token({"sub": user["id"]})
         
         # Set cookie with token
         response.set_cookie(
@@ -115,12 +122,10 @@ async def login(login_request: LoginRequest, response: Response):
         return {
             "access_token": token,
             "token_type": "bearer",
-            "user_id": user["_id"],
+            "user_id": user["id"],
             "username": user["username"],
             "family_name": user["family_name"]
         }
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
@@ -135,7 +140,7 @@ async def get_current_user(token: Optional[str] = Cookie(None, alias="minute_emp
     
     try:
         import jwt
-        from minute_empire.core.authentication import SECRET_KEY, ALGORITHM
+        from minute_empire.services.authentication_service import SECRET_KEY, ALGORITHM
         
         # Decode token
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
@@ -144,8 +149,11 @@ async def get_current_user(token: Optional[str] = Cookie(None, alias="minute_emp
         if user_id is None:
             raise HTTPException(status_code=401, detail="Invalid token")
         
-        # Get user from database
-        user = await get_user_by_id(user_id)
+        # Get user from service
+        user = await auth_service.get_user_by_id(user_id)
+        if not user:
+            raise HTTPException(status_code=401, detail="User not found")
+            
         return user
     except jwt.PyJWTError:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -155,12 +163,7 @@ async def get_current_user(token: Optional[str] = Cookie(None, alias="minute_emp
 @app.get("/me", response_model=UserResponse)
 async def get_current_user_info(current_user: dict = Depends(get_current_user)):
     """Get information about the currently authenticated user."""
-    return {
-        "id": current_user["_id"],
-        "username": current_user["username"],
-        "family_name": current_user["family_name"],
-        "color": current_user["color"]
-    }
+    return current_user
 
 @app.get("/logout")
 async def logout(response: Response):
@@ -171,8 +174,34 @@ async def logout(response: Response):
 @app.get("/villages/me")
 async def get_my_villages(current_user: dict = Depends(get_current_user)):
     """Get all villages owned by the current user."""
-    villages = await get_user_villages(current_user["_id"])
-    return villages
+    from minute_empire.repositories.village_repository import VillageRepository
+    from minute_empire.services.resource_service import ResourceService
+    
+    # Initialize repositories and services
+    village_repo = VillageRepository()
+    resource_service = ResourceService()
+    
+    try:
+        # Get user villages using the repository
+        villages = await village_repo.get_by_owner(current_user["id"])
+        if not villages:
+            # Return empty list if user has no villages
+            return []
+            
+        # Update resources for each village
+        await resource_service.update_all_user_villages(current_user["id"])
+        
+        # Convert villages to summaries
+        village_summaries = []
+        for village in villages:
+            if village is not None:  # Check if village exists
+                summary = village.get_summary()
+                if summary:  # Check if summary is not None
+                    village_summaries.append(summary)
+        
+        return village_summaries
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Import and include routers
 # from app.api.api import api_router

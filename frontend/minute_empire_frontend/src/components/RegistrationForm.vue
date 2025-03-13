@@ -230,25 +230,25 @@ const color = ref('#2E7D32') // Default color - forest green
 const usernameRules = [
   v => !!v || 'Username is required',
   v => (v && v.length >= 3) || 'Username must be at least 3 characters',
-  v => (v && v.length <= 20) || 'Username must be less than 20 characters',
+  v => (v && v.length <= 50) || 'Username must be less than 50 characters',
   v => /^[a-zA-Z0-9_-]+$/.test(v) || 'Username can only contain letters, numbers, underscores and hyphens'
 ]
 
 const passwordRules = [
   v => !!v || 'Password is required',
-  v => (v && v.length >= 6) || 'Password must be at least 6 characters'
+  v => (v && v.length >= 8) || 'Password must be at least 8 characters'
 ]
 
 const familyNameRules = [
   v => !!v || 'Family name is required',
   v => (v && v.length >= 2) || 'Family name must be at least 2 characters',
-  v => (v && v.length <= 30) || 'Family name must be less than 30 characters'
+  v => (v && v.length <= 50) || 'Family name must be less than 50 characters'
 ]
 
 const villageNameRules = [
   v => !!v || 'Village name is required',
-  v => (v && v.length >= 2) || 'Village name must be at least 2 characters',
-  v => (v && v.length <= 30) || 'Village name must be less than 30 characters'
+  v => (v && v.length >= 3) || 'Village name must be at least 3 characters',
+  v => (v && v.length <= 50) || 'Village name must be less than 50 characters'
 ]
 
 // Predefined color swatches for banners

@@ -5,6 +5,7 @@ from bson import ObjectId
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 from dotenv import load_dotenv
 import pathlib
+from contextlib import asynccontextmanager
 
 from ..schemas.schemas import (
     UserInDB, 
@@ -39,53 +40,17 @@ MONGODB_URI = f"mongodb://{MONGO_USER}:{MONGO_PASSWORD}@{host}:27017/{MONGO_DB}?
 print(f"Connecting to MongoDB at: {host}:27017 with user {MONGO_USER} and database {MONGO_DB}")
 print(f"Using database name: {DATABASE_NAME}")
 
-# MongoDB client instance (async)
-async_client = None
-async_db = None
-
-async def connect_to_mongodb() -> AsyncIOMotorDatabase:
-    """Connect to MongoDB asynchronously.
+@asynccontextmanager
+async def get_db():
+    """Context manager for database connections.
     
-    Returns:
-        AsyncIOMotorDatabase: MongoDB database instance
+    Usage:
+        async with get_db() as db:
+            result = await db.collection.find_one(...)
     """
-    global async_client, async_db
+    client = AsyncIOMotorClient(MONGODB_URI)
     try:
-        async_client = AsyncIOMotorClient(MONGODB_URI)
-        async_db = async_client[DATABASE_NAME]
-        print(f"Connected to MongoDB at {MONGODB_URI.split('@')[-1] if '@' in MONGODB_URI else MONGODB_URI}")
-        return async_db
-    except Exception as e:
-        print(f"Could not connect to MongoDB: {e}")
-        raise
-
-async def close_mongodb_connection() -> None:
-    """Close MongoDB connection."""
-    global async_client
-    if async_client:
-        async_client.close()
-        print("Closed MongoDB connection")
-
-def get_database() -> AsyncIOMotorDatabase:
-    """Return async database instance."""
-    return async_db
-
-async def get_all_users() -> List[Dict]:
-    """Get all users.
-    
-    Returns:
-        List[Dict]: List of all users (without passwords)
-    """
-    db = await connect_to_mongodb()
-    users_collection = db["users"]
-    
-    # Find all users
-    cursor = users_collection.find()
-    users = await cursor.to_list(length=100)
-    
-    # Remove passwords from results
-    for user in users:
-        if "password" in user:
-            user.pop("password")
-    
-    return users
+        db = client[DATABASE_NAME]
+        yield db
+    finally:
+        client.close()

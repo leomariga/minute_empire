@@ -10,7 +10,6 @@ class TroopType(str, Enum):
     SPEARMAN = "spearman"
 
 class ResourceFieldType(str, Enum):
-    EMPTY = "empty"
     WOOD = "wood"
     STONE = "stone"
     IRON = "iron"
@@ -23,7 +22,6 @@ class TroopMode(str, Enum):
     MOVE = "move"
 
 class ConstructionType(str, Enum):
-    EMPTY = "empty"
     CITY_CENTER = "city_center"
     RALLY_POINT = "rally_point"
     BARRAKS = "barraks"
@@ -35,8 +33,9 @@ class ConstructionType(str, Enum):
     WALL = "wall"
 
 class Construction(BaseModel):
-    type: ConstructionType = Field(default=ConstructionType.EMPTY)
+    type: ConstructionType
     level: int = Field(default=0, ge=0)
+    slot: int = Field(default=0, ge=0)
 
 class City(BaseModel):
     wall: Construction = Field(default=Construction(type=ConstructionType.WALL, level=0))
@@ -47,14 +46,15 @@ class Location(BaseModel):
     y: int = Field(..., description="Y coordinate on the map")
 
 class Resources(BaseModel):
-    wood: int = Field(default=0, ge=0)
-    stone: int = Field(default=0, ge=0)
-    iron: int = Field(default=0, ge=0)
-    food: int = Field(default=0, ge=0)
+    wood: float = Field(default=0, ge=0)
+    stone: float = Field(default=0, ge=0)
+    iron: float = Field(default=0, ge=0)
+    food: float = Field(default=0, ge=0)
 
 class ResourceField(BaseModel):
     type: ResourceFieldType
     level: int = Field(default=0, ge=0)
+    slot: int = Field(default=0, ge=0)
 
 class UserInDB(BaseModel):
     """Schema for user as stored in database."""
