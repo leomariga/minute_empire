@@ -34,7 +34,8 @@ const routes = [
   {
     path: '/village',
     name: 'Village',
-    component: () => import('@/views/VillageView.vue'),
+    component: () => import(/* webpackChunkName: "village" */ '@/views/VillageView.vue'),
+    alias: '/village/',
     meta: { 
       requiresAuth: true 
     }
@@ -87,9 +88,13 @@ router.onError((err, to) => {
       location.assign(to.fullPath)
     } else {
       console.error('Dynamic import error, reloading page did not fix it', err)
+      // Redirect to home if we're stuck in a loop
+      if (to.name === 'Village') {
+        router.push('/')
+      }
     }
   } else {
-    console.error(err)
+    console.error('Router error:', err)
   }
 })
 

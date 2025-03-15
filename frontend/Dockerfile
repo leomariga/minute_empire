@@ -25,8 +25,8 @@ FROM nginx:stable-alpine as production-stage
 # Copy built files from build stage
 COPY --from=build-stage /app/minute_empire_frontend/dist /usr/share/nginx/html
 
-# Copy custom nginx config if needed
-# COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy nginx configuration
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port
 EXPOSE 80

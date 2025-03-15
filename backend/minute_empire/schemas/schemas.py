@@ -81,6 +81,7 @@ class VillageInDB(BaseModel):
     resource_fields: List[ResourceField] = Field(default_factory=list)
     resources: Resources = Field(default_factory=Resources)
     city: City = Field(default_factory=City)
+    res_update_at: datetime
     created_at: datetime
     updated_at: datetime
 

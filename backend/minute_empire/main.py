@@ -23,7 +23,14 @@ app = FastAPI(
 # Configure CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "http://localhost:5173"],  # Add your frontend URL
+    allow_origins=[
+        "http://localhost:8080",
+        "http://localhost:5173",
+        "http://localhost",
+        "http://127.0.0.1:8080",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1",
+    ],  # Add your frontend URLs
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -182,15 +189,11 @@ async def get_my_villages(current_user: dict = Depends(get_current_user)):
     resource_service = ResourceService()
     
     try:
-        # Get user villages using the repository
-        villages = await village_repo.get_by_owner(current_user["id"])
+        # Update resources and get updated villages in one operation
+        villages = await resource_service.update_all_user_villages(current_user["id"])
         if not villages:
-            # Return empty list if user has no villages
             return []
             
-        # Update resources for each village
-        await resource_service.update_all_user_villages(current_user["id"])
-        
         # Convert villages to summaries
         village_summaries = []
         for village in villages:

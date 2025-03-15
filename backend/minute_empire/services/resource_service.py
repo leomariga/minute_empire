@@ -48,7 +48,7 @@ class ResourceService:
             "hours_elapsed": hours_elapsed
         }
     
-    async def update_all_user_villages(self, user_id: str) -> List[Dict[str, float]]:
+    async def update_all_user_villages(self, user_id: str) -> List[Village]:
         """
         Update resources for all villages owned by a user.
         
@@ -56,14 +56,14 @@ class ResourceService:
             user_id: The ID of the user
             
         Returns:
-            List of dictionaries with updated resource values
+            List of updated Village domain objects
         """
         # Get all user villages
         villages = await self.village_repository.get_by_owner(user_id)
         if not villages:  # Return empty list if no villages
             return []
             
-        results = []
+        updated_villages = []
         
         # Update each village
         for village in villages:
@@ -73,37 +73,27 @@ class ResourceService:
             try:
                 # Calculate elapsed time since last update
                 now = datetime.utcnow()
-                last_update = village.updated_at
+                last_update = village.res_update_at
                 hours_elapsed = (now - last_update).total_seconds() / 3600
-                
-                # Get current production rates
-                production_rates = village.get_resource_rates()
                 
                 # Update resources based on elapsed time
                 village.update_resources(hours_elapsed)
+
+                # Update res_update_at
+                village.res_update_at = now
                 
                 # Save changes to database
                 await self.village_repository.save(village)
                 
-                # Add result
-                results.append({
-                    "village_id": village.id,
-                    "village_name": village.name,
-                    "resources": {
-                        "wood": village.resources.wood,
-                        "stone": village.resources.stone,
-                        "iron": village.resources.iron,
-                        "food": village.resources.food
-                    },
-                    "production_rates": production_rates,
-                    "hours_elapsed": hours_elapsed
-                })
+                # Add the updated village object to the list
+                updated_villages.append(village)
+                
             except Exception as e:
                 # Log error but continue with other villages
                 print(f"Error updating village {village.id if village else 'unknown'}: {str(e)}")
                 continue
             
-        return results
+        return updated_villages
     
     async def calculate_time_to_resource_goal(self, village_id: str, resource_goals: Dict[str, float]) -> Dict[str, float]:
         """

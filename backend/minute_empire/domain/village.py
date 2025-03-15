@@ -56,6 +56,16 @@ class Village:
         """Last update time"""
         return self._data.updated_at
     
+    @property
+    def res_update_at(self) -> datetime:
+        """Last resource update time"""
+        return self._data.res_update_at
+    
+    @res_update_at.setter
+    def res_update_at(self, value: datetime) -> None:
+        """Set last resource update time"""
+        self._data.res_update_at = value
+    
     def get_building(self, slot: int) -> Optional[Building]:
         """Get building by slot number"""
         # Lazy-load buildings
@@ -266,6 +276,7 @@ class Village:
             "production_rates": production_rates,
             "building_count": building_count,
             "resource_fields_count": resource_fields_count,
+            "res_update_at": self.res_update_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
