@@ -9,7 +9,7 @@ class ResourceService:
     def __init__(self):
         self.village_repository = VillageRepository()
     
-    async def update_village_resources(self, village_id: str) -> Optional[Dict[str, float]]:
+    async def update_village_resources(self, village_id: str) -> Optional[Village]:
         """
         Update a village's resources based on elapsed time since last update.
         
@@ -17,36 +17,43 @@ class ResourceService:
             village_id: The ID of the village
             
         Returns:
-            Dict with updated resource values, or None if village not found
+            Updated Village object, or None if village not found
         """
+        print(f"\n[ResourceService] Updating resources for village: {village_id}")
         # Get the village
         village = await self.village_repository.get_by_id(village_id)
         if village is None:
+            print(f"[ResourceService] Village not found: {village_id}")
             return None
         
-        # Calculate elapsed time since last update
-        now = datetime.utcnow()
-        last_update = village.updated_at
-        hours_elapsed = (now - last_update).total_seconds() / 3600  # Convert to hours
-        
-        # Get current production rates
-        production_rates = village.get_resource_rates()
-        
-        # Update resources based on elapsed time
-        village.update_resources(hours_elapsed)
-        
-        # Save changes to database
-        await self.village_repository.save(village)
-        
-        # Return current resource values
-        return {
-            "wood": village.resources.wood,
-            "stone": village.resources.stone,
-            "iron": village.resources.iron,
-            "food": village.resources.food,
-            "production_rates": production_rates,
-            "hours_elapsed": hours_elapsed
-        }
+        try:
+            # Calculate elapsed time since last update
+            now = datetime.utcnow()
+            last_update = village.res_update_at
+            hours_elapsed = (now - last_update).total_seconds() / 3600  # Convert to hours
+            
+            print(f"[ResourceService] Time since last update: {hours_elapsed:.2f} hours")
+            print(f"[ResourceService] Current resources: {village.resources.dict()}")
+            
+            # Update resources based on elapsed time
+            village.update_resources(hours_elapsed)
+            
+            print(f"[ResourceService] Updated resources: {village.resources.dict()}")
+            
+            # Update res_update_at
+            village.res_update_at = now
+            
+            # Save changes to database
+            await self.village_repository.save(village)
+            print(f"[ResourceService] Successfully saved updated resources for village {village_id}")
+            
+            return village
+            
+        except Exception as e:
+            print(f"[ResourceService] Error updating village {village_id}: {str(e)}")
+            import traceback
+            print(f"[ResourceService] Error traceback:\n{traceback.format_exc()}")
+            return None
     
     async def update_all_user_villages(self, user_id: str) -> List[Village]:
         """
@@ -58,11 +65,14 @@ class ResourceService:
         Returns:
             List of updated Village domain objects
         """
+        print(f"\n[ResourceService] Updating all villages for user: {user_id}")
         # Get all user villages
         villages = await self.village_repository.get_by_owner(user_id)
         if not villages:  # Return empty list if no villages
+            print(f"[ResourceService] No villages found for user {user_id}")
             return []
             
+        print(f"[ResourceService] Found {len(villages)} villages for user {user_id}")
         updated_villages = []
         
         # Update each village
@@ -70,29 +80,12 @@ class ResourceService:
             if village is None:  # Skip if village is None
                 continue
                 
-            try:
-                # Calculate elapsed time since last update
-                now = datetime.utcnow()
-                last_update = village.res_update_at
-                hours_elapsed = (now - last_update).total_seconds() / 3600
-                
-                # Update resources based on elapsed time
-                village.update_resources(hours_elapsed)
-
-                # Update res_update_at
-                village.res_update_at = now
-                
-                # Save changes to database
-                await self.village_repository.save(village)
-                
-                # Add the updated village object to the list
-                updated_villages.append(village)
-                
-            except Exception as e:
-                # Log error but continue with other villages
-                print(f"Error updating village {village.id if village else 'unknown'}: {str(e)}")
-                continue
+            print(f"[ResourceService] Processing village: {village.id}")
+            updated_village = await self.update_village_resources(village.id)
+            if updated_village:
+                updated_villages.append(updated_village)
             
+        print(f"[ResourceService] Successfully updated {len(updated_villages)} villages")
         return updated_villages
     
     async def calculate_time_to_resource_goal(self, village_id: str, resource_goals: Dict[str, float]) -> Dict[str, float]:

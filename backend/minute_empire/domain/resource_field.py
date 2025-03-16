@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from minute_empire.schemas.schemas import ResourceField, ResourceFieldType
 
 class ResourceProducer:
@@ -104,6 +104,10 @@ class ResourceProducer:
         # Mark village as changed
         self._village.mark_as_changed()
         return True
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert resource field to dictionary for storage or API responses"""
+        return self.data.dict()
     
     def __str__(self) -> str:
         return f"{self.type.value} field (Level {self.level}, Slot {self.slot})" 

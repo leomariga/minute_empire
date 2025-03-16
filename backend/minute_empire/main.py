@@ -5,13 +5,16 @@ from typing import Optional
 
 from minute_empire.services.registration_service import RegistrationService
 from minute_empire.services.authentication_service import AuthenticationService
+from minute_empire.services.command_service import CommandService
 from minute_empire.api.api_models import (
     RegistrationRequest, 
     RegistrationResponse, 
     LoginRequest, 
     TokenResponse,
     UserResponse,
-    VillageResponse
+    VillageResponse,
+    CommandRequest,
+    CommandResponse
 )
 
 app = FastAPI(
@@ -203,6 +206,44 @@ async def get_my_villages(current_user: dict = Depends(get_current_user)):
                     village_summaries.append(summary)
         
         return village_summaries
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/villages/command", response_model=CommandResponse)
+async def execute_command(
+    command_request: CommandRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Execute a command on a village."""
+    from minute_empire.repositories.village_repository import VillageRepository
+    
+    # Initialize services
+    village_repo = VillageRepository()
+    command_service = CommandService()
+    
+    try:
+        # Verify village ownership
+        village = await village_repo.get_by_id(command_request.village_id)
+        if not village:
+            raise HTTPException(status_code=404, detail="Village not found")
+            
+        if village.owner_id != current_user["id"]:
+            raise HTTPException(status_code=403, detail="Not your village")
+        
+        # Execute the command
+        result = await command_service.execute_command(
+            command=command_request.command,
+            village_id=command_request.village_id
+        )
+        
+        return CommandResponse(
+            success=result["success"],
+            message=result["message"],
+            data=result["data"]
+        )
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

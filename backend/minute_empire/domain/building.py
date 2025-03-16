@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 from minute_empire.schemas.schemas import ConstructionType, Construction
 
 class Building:
@@ -98,5 +98,9 @@ class Building:
         # Specialized buildings could provide larger bonuses to specific resources
         return 0.0
     
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert building to dictionary for storage or API responses"""
+        return self.data.dict()
+
     def __str__(self) -> str:
         return f"{self.type.value} (Level {self.level}, Slot {self.slot})" 

@@ -62,6 +62,45 @@
                 <v-tab-item v-for="village in villages" :key="village._id">
                   <v-card flat>
                     <v-card-text>
+                      <!-- Command Interface -->
+                      <v-row class="mb-4">
+                        <v-col cols="12">
+                          <v-card outlined>
+                            <v-card-title>Command Center</v-card-title>
+                            <v-card-text>
+                              <v-form @submit.prevent="executeCommand()">
+                                <v-text-field
+                                  v-model="commandInput"
+                                  label="Enter command"
+                                  placeholder="e.g., upgrade field in 1"
+                                  :error-messages="commandError"
+                                  @input="commandError = ''"
+                                  append-outer-icon="mdi-send"
+                                  @click:append-outer="executeCommand()"
+                                ></v-text-field>
+                              </v-form>
+                              <v-alert
+                                v-if="commandResult"
+                                :type="commandResult.success ? 'success' : 'error'"
+                                class="mt-2"
+                                dismissible
+                              >
+                                {{ commandResult.message }}
+                              </v-alert>
+                              <v-card-subtitle>
+                                Available commands:
+                                <ul class="mt-2">
+                                  <li>upgrade field in [slot]</li>
+                                  <li>upgrade building in [slot]</li>
+                                  <li>create [wood|stone|iron|food] field in [slot]</li>
+                                  <li>create [city_center|rally_point|barraks|archery|stable|warehouse|granary|hide_spot|wall] building in [slot]</li>
+                                </ul>
+                              </v-card-subtitle>
+                            </v-card-text>
+                          </v-card>
+                        </v-col>
+                      </v-row>
+                      
                       <v-row>
                         <v-col cols="12" md="6">
                           <v-card outlined>
@@ -134,6 +173,7 @@
 
 <script>
 import authService from '@/services/authService';
+import apiService from '@/services/apiService';
 
 export default {
   name: 'VillageView',
@@ -145,11 +185,13 @@ export default {
       userData: null,
       villages: [],
       activeVillage: 0,
+      commandInput: '',
+      commandError: '',
+      commandResult: null,
     };
   },
   
   async created() {
-    // Check if user is authenticated
     if (!authService.isAuthenticated()) {
       this.$router.push('/login');
       return;
@@ -164,7 +206,7 @@ export default {
       try {
         this.loading = true;
         this.error = null;
-        this.villages = await authService.getVillages();
+        this.villages = await apiService.getUserVillages();
       } catch (error) {
         this.error = 'Failed to load village data. Please try again later.';
         console.error('Error fetching villages:', error);
@@ -176,11 +218,42 @@ export default {
     async logout() {
       try {
         await authService.logout();
-        // Router redirect is handled in the authService
       } catch (error) {
         console.error('Logout error:', error);
       }
-    }
+    },
+    
+    async executeCommand() {
+      if (!this.commandInput.trim()) {
+        this.commandError = 'Please enter a command';
+        return;
+      }
+
+      const currentVillage = this.villages[this.activeVillage];
+      const villageId = currentVillage?.id || currentVillage?._id;
+
+      if (!villageId) {
+        this.commandError = 'No village selected or village ID not found';
+        return;
+      }
+      
+      try {
+        console.log(`[Command] Executing "${this.commandInput}" for village ${villageId}`);
+        const response = await apiService.executeCommand(villageId, this.commandInput);
+        
+        this.commandResult = response;
+        if (response.success) {
+          this.commandInput = '';
+          await this.fetchVillages();
+        }
+      } catch (error) {
+        console.error('[Command] Error:', error);
+        this.commandResult = {
+          success: false,
+          message: error.response?.data?.detail || 'Failed to execute command'
+        };
+      }
+    },
   }
 };
 </script>

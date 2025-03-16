@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from minute_empire.schemas.schemas import VillageInDB, ConstructionType, ResourceFieldType
 from minute_empire.domain.building import Building
-from minute_empire.domain.resource import ResourceProducer
+from minute_empire.domain.resource_field import ResourceProducer
 
 class Village:
     """Domain class for villages with game logic"""
@@ -15,6 +15,7 @@ class Village:
         self._changed = False
         self._buildings = None
         self._resource_fields = None
+        
     
     @property
     def id(self) -> str:
@@ -89,6 +90,7 @@ class Village:
         # Ensure buildings are loaded
         if self._buildings is None:
             # This will load the buildings
+            # We need to load at least one building to load the list
             self.get_building(0)
             
         return list(self._buildings.values())
@@ -98,36 +100,24 @@ class Village:
         # Lazy-load resource fields
         if self._resource_fields is None:
             self._resource_fields = {}
-            for field in self._data.resource_fields:
-                producer = ResourceProducer(field, self)
-                self._resource_fields[field.slot] = producer
-                
+            # Load all resource fields into cache
+            if hasattr(self._data, 'resource_fields') and self._data.resource_fields:
+                for field in self._data.resource_fields:
+                    if field is not None and hasattr(field, 'slot'):
+                        producer = ResourceProducer(field, self)
+                        self._resource_fields[field.slot] = producer
+        
         return self._resource_fields.get(slot)
     
     def get_all_resource_fields(self) -> List[ResourceProducer]:
         """Get all resource fields"""
         # Ensure resource fields are loaded
         if self._resource_fields is None:
-            self._resource_fields = {}
-            # Make sure resource fields exist in the data
-            if hasattr(self._data, 'resource_fields') and self._data.resource_fields:
-                try:
-                    # This will load the resource fields
-                    for field in self._data.resource_fields:
-                        if field is not None and hasattr(field, 'slot'):
-                            self.get_resource_field(field.slot)
-                except Exception as e:
-                    print(f"Error loading resource fields: {str(e)}")
-            
-        # Just in case _resource_fields is None after all attempts
-        if self._resource_fields is None:
-            self._resource_fields = {}
-            
-        try:
-            return list(self._resource_fields.values())
-        except Exception as e:
-            print(f"Error getting resource_fields values: {str(e)}")
-            return []
+            # This will load the resource fields
+            # We need to load at least one resource field to load the list
+            self.get_resource_field(0)
+        
+        return list(self._resource_fields.values())
     
     def get_production_bonus_for_resource(self, resource_type: str) -> float:
         """Calculate production bonus for a resource type from all buildings"""
@@ -237,6 +227,7 @@ class Village:
             
         try:
             resource_fields_count = len(self.get_all_resource_fields())
+            print(f"[Village] Resource fields count: {resource_fields_count}")
         except Exception:
             pass
         
@@ -244,7 +235,9 @@ class Village:
         resources_fields_list = []
         try:
             for field in self.get_all_resource_fields():
+                print(f"[Village] Resource field: {field}")
                 if hasattr(field, 'to_dict') and callable(field.to_dict):
+                    print(f"[Village] Resource field to dict: {field.to_dict()}")
                     resources_fields_list.append(field.to_dict())
         except Exception:
             pass
@@ -282,4 +275,93 @@ class Village:
         }
     
     def __str__(self) -> str:
-        return f"Village: {self.name} at {self.location}" 
+        return f"Village: {self.name} at {self.location}"
+
+    def add_building(self, building_type: ConstructionType, slot: int) -> bool:
+        """
+        Add a new building to the village.
+        
+        Args:
+            building_type: Type of building to create
+            slot: Slot number for the new building
+            
+        Returns:
+            bool: True if building was added successfully
+        """
+        # Check if slot is already occupied
+        if self.get_building(slot):
+            return False
+            
+        # Check if we've reached the maximum number of buildings
+        if len(self.get_all_buildings()) >= self.MAX_CONSTRUCTIONS:
+            return False
+            
+        # Create the new building construction
+        from minute_empire.schemas.schemas import Construction
+        new_construction = Construction(type=building_type, level=1, slot=slot)
+        
+        # Add it to the village constructions
+        self._data.city.constructions.append(new_construction)
+        
+        # Clear the buildings cache to force reload
+        self._buildings = None
+        
+        # Mark as changed
+        self.mark_as_changed()
+        return True
+    
+    def add_resource_field(self, field_type: ResourceFieldType, slot: int) -> bool:
+        """
+        Add a new resource field to the village.
+        
+        Args:
+            field_type: Type of resource field to create
+            slot: Slot number for the new field
+            
+        Returns:
+            bool: True if field was added successfully
+        """
+        print(f"[Village] Adding resource field of type {field_type} in slot {slot}")
+        
+        # Check if slot is already occupied
+        existing_field = self.get_resource_field(slot)
+        if existing_field:
+            print(f"[Village] Slot {slot} is already occupied by {existing_field.type}")
+            return False
+            
+        # Check if we've reached the maximum number of fields
+        current_fields = self.get_all_resource_fields()
+        print(f"[Village] Current field count: {len(current_fields)}, Maximum allowed: {self.MAX_FIELDS}")
+        if len(current_fields) >= self.MAX_FIELDS:
+            print(f"[Village] Maximum number of fields ({self.MAX_FIELDS}) reached")
+            return False
+            
+        # Create the new resource field
+        from minute_empire.schemas.schemas import ResourceField
+        try:
+            print(f"[Village] Creating new ResourceField object with type={field_type}, level=1, slot={slot}")
+            new_field = ResourceField(type=field_type, level=1, slot=slot)
+            
+            # Initialize resource_fields list if it doesn't exist
+            if not hasattr(self._data, 'resource_fields'):
+                print("[Village] Initializing resource_fields list")
+                self._data.resource_fields = []
+            
+            # Add the new field
+            print("[Village] Appending new field to resource_fields")
+            self._data.resource_fields.append(new_field)
+            
+            # Clear the resource fields cache to force reload
+            print("[Village] Clearing resource fields cache")
+            self._resource_fields = None
+            
+            # Mark as changed
+            print("[Village] Marking village as changed")
+            self.mark_as_changed()
+            
+            print("[Village] Successfully added resource field")
+            return True
+            
+        except Exception as e:
+            print(f"[Village] Error creating resource field: {str(e)}")
+            return False 

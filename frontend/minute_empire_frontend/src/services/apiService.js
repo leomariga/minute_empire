@@ -89,6 +89,37 @@ const apiService = {
       console.error('Get villages error:', error.response?.data || error.message);
       throw error;
     }
+  },
+
+  /**
+   * Execute a command on a village
+   * @param {string} villageId - ID of the village
+   * @param {string} command - Command to execute
+   * @returns {Promise<Object>} Command execution result
+   */
+  async executeCommand(villageId, command) {
+    try {
+      console.log(`[ApiService] Executing command with params:`, { villageId, command });
+      if (!villageId) {
+        throw new Error('Village ID is required');
+      }
+      if (!command) {
+        throw new Error('Command is required');
+      }
+      
+      const requestBody = {
+        command: command,
+        village_id: villageId
+      };
+      console.log('[ApiService] Request body:', JSON.stringify(requestBody, null, 2));
+      
+      const response = await this._api.post('/villages/command', requestBody);
+      console.log('[ApiService] Command response:', response.data);
+      return response.data;
+    } catch (error) {
+      console.error('[ApiService] Command error:', error.response?.data || error.message);
+      throw error;
+    }
   }
 };
 

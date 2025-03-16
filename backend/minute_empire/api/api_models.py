@@ -52,3 +52,13 @@ class VillageResponse(BaseModel):
     resources: dict
     city: dict
     created_at: str
+
+# Command models
+class CommandRequest(BaseModel):
+    command: str = Field(..., description="Command string to execute")
+    village_id: str = Field(..., description="ID of the village to execute the command on")
+
+class CommandResponse(BaseModel):
+    success: bool
+    message: str
+    data: dict = {}
