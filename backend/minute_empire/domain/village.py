@@ -277,7 +277,7 @@ class Village:
     def __str__(self) -> str:
         return f"Village: {self.name} at {self.location}"
 
-    def add_building(self, building_type: ConstructionType, slot: int) -> bool:
+    def add_building(self, building_type: ConstructionType, slot: int) -> Dict[str, Any]:
         """
         Add a new building to the village.
         
@@ -286,31 +286,67 @@ class Village:
             slot: Slot number for the new building
             
         Returns:
-            bool: True if building was added successfully
+            Dict[str, Any]: Result of the operation with success status and error message if any
         """
-        # Check if slot is already occupied
-        if self.get_building(slot):
-            return False
+        try:
+            # Check if slot is already occupied
+            if self.get_building(slot):
+                return {
+                    "success": False,
+                    "error": f"Slot {slot} is already occupied"
+                }
+                
+            # Check if we've reached the maximum number of buildings
+            if len(self.get_all_buildings()) >= self.MAX_CONSTRUCTIONS:
+                return {
+                    "success": False,
+                    "error": f"Maximum number of buildings ({self.MAX_CONSTRUCTIONS}) reached"
+                }
+                
+            # Check if we can afford the building
+            if not Building.can_create(building_type, self):
+                costs = Building.get_creation_cost(building_type)
+                missing = {
+                    resource: amount - getattr(self.resources, resource, 0)
+                    for resource, amount in costs.items()
+                    if getattr(self.resources, resource, 0) < amount
+                }
+                return {
+                    "success": False,
+                    "error": "Insufficient resources",
+                    "cost": costs,
+                    "missing": missing,
+                    "current_resources": {
+                        "wood": self.resources.wood,
+                        "stone": self.resources.stone,
+                        "iron": self.resources.iron,
+                        "food": self.resources.food
+                    }
+                }
             
-        # Check if we've reached the maximum number of buildings
-        if len(self.get_all_buildings()) >= self.MAX_CONSTRUCTIONS:
-            return False
+            # Create the new building using domain method
+            new_building = Building.create(building_type, slot, self)
             
-        # Create the new building construction
-        from minute_empire.schemas.schemas import Construction
-        new_construction = Construction(type=building_type, level=1, slot=slot)
-        
-        # Add it to the village constructions
-        self._data.city.constructions.append(new_construction)
-        
-        # Clear the buildings cache to force reload
-        self._buildings = None
-        
-        # Mark as changed
-        self.mark_as_changed()
-        return True
+            # Add it to the village constructions
+            self._data.city.constructions.append(new_building.data)
+            
+            # Clear the buildings cache to force reload
+            self._buildings = None
+            
+            return {
+                "success": True,
+                "building_type": building_type.value,
+                "level": 1,
+                "slot": slot
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e)
+            }
     
-    def add_resource_field(self, field_type: ResourceFieldType, slot: int) -> bool:
+    def add_resource_field(self, field_type: ResourceFieldType, slot: int) -> Dict[str, Any]:
         """
         Add a new resource field to the village.
         
@@ -319,49 +355,68 @@ class Village:
             slot: Slot number for the new field
             
         Returns:
-            bool: True if field was added successfully
+            Dict[str, Any]: Result of the operation with success status and error message if any
         """
-        print(f"[Village] Adding resource field of type {field_type} in slot {slot}")
-        
-        # Check if slot is already occupied
-        existing_field = self.get_resource_field(slot)
-        if existing_field:
-            print(f"[Village] Slot {slot} is already occupied by {existing_field.type}")
-            return False
-            
-        # Check if we've reached the maximum number of fields
-        current_fields = self.get_all_resource_fields()
-        print(f"[Village] Current field count: {len(current_fields)}, Maximum allowed: {self.MAX_FIELDS}")
-        if len(current_fields) >= self.MAX_FIELDS:
-            print(f"[Village] Maximum number of fields ({self.MAX_FIELDS}) reached")
-            return False
-            
-        # Create the new resource field
-        from minute_empire.schemas.schemas import ResourceField
         try:
-            print(f"[Village] Creating new ResourceField object with type={field_type}, level=1, slot={slot}")
-            new_field = ResourceField(type=field_type, level=1, slot=slot)
+            # Check if slot is already occupied
+            existing_field = self.get_resource_field(slot)
+            if existing_field:
+                return {
+                    "success": False,
+                    "error": f"Slot {slot} is already occupied by {existing_field.type}"
+                }
+                
+            # Check if we've reached the maximum number of fields
+            current_fields = self.get_all_resource_fields()
+            if len(current_fields) >= self.MAX_FIELDS:
+                return {
+                    "success": False,
+                    "error": f"Maximum number of fields ({self.MAX_FIELDS}) reached"
+                }
+                
+            # Check if we can afford the field
+            if not ResourceProducer.can_create(field_type, self):
+                costs = ResourceProducer.get_creation_cost(field_type)
+                missing = {
+                    resource: amount - getattr(self.resources, resource, 0)
+                    for resource, amount in costs.items()
+                    if getattr(self.resources, resource, 0) < amount
+                }
+                return {
+                    "success": False,
+                    "error": "Insufficient resources",
+                    "cost": costs,
+                    "missing": missing,
+                    "current_resources": {
+                        "wood": self.resources.wood,
+                        "stone": self.resources.stone,
+                        "iron": self.resources.iron,
+                        "food": self.resources.food
+                    }
+                }
+            
+            # Create the new field using domain method
+            new_field = ResourceProducer.create(field_type, slot, self)
             
             # Initialize resource_fields list if it doesn't exist
             if not hasattr(self._data, 'resource_fields'):
-                print("[Village] Initializing resource_fields list")
                 self._data.resource_fields = []
             
             # Add the new field
-            print("[Village] Appending new field to resource_fields")
-            self._data.resource_fields.append(new_field)
+            self._data.resource_fields.append(new_field.data)
             
             # Clear the resource fields cache to force reload
-            print("[Village] Clearing resource fields cache")
             self._resource_fields = None
             
-            # Mark as changed
-            print("[Village] Marking village as changed")
-            self.mark_as_changed()
-            
-            print("[Village] Successfully added resource field")
-            return True
+            return {
+                "success": True,
+                "field_type": field_type.value,
+                "level": 1,
+                "slot": slot
+            }
             
         except Exception as e:
-            print(f"[Village] Error creating resource field: {str(e)}")
-            return False 
+            return {
+                "success": False,
+                "error": str(e)
+            } 

@@ -3,6 +3,82 @@ from minute_empire.schemas.schemas import ResourceField, ResourceFieldType
 
 class ResourceProducer:
     """Domain class for resource fields with production logic"""
+    
+    # Base costs for creating new fields
+    BASE_CREATION_COSTS = {
+        ResourceFieldType.WOOD: {"wood": 30, "stone": 40, "iron": 20},
+        ResourceFieldType.STONE: {"wood": 40, "stone": 30, "iron": 25},
+        ResourceFieldType.IRON: {"wood": 50, "stone": 60, "iron": 30},
+        ResourceFieldType.FOOD: {"wood": 25, "stone": 25, "iron": 15},
+    }
+    
+    @staticmethod
+    def get_creation_cost(field_type: ResourceFieldType) -> Dict[str, int]:
+        """
+        Get the cost to create a new resource field.
+        
+        Args:
+            field_type: Type of resource field to create
+            
+        Returns:
+            Dict[str, int]: Resource costs for creation
+        """
+        if field_type not in ResourceProducer.BASE_CREATION_COSTS:
+            return {}
+        return ResourceProducer.BASE_CREATION_COSTS[field_type].copy()
+    
+    @staticmethod
+    def can_create(field_type: ResourceFieldType, village) -> bool:
+        """
+        Check if a new resource field can be created.
+        
+        Args:
+            field_type: Type of resource field to create
+            village: Village where the field would be created
+            
+        Returns:
+            bool: True if creation requirements are met
+        """
+        costs = ResourceProducer.get_creation_cost(field_type)
+        return all(
+            getattr(village.resources, resource, 0) >= amount
+            for resource, amount in costs.items()
+        )
+    
+    @staticmethod
+    def create(field_type: ResourceFieldType, slot: int, village) -> 'ResourceProducer':
+        """
+        Create a new resource field.
+        
+        Args:
+            field_type: Type of resource field to create
+            slot: Slot number for the new field
+            village: Village this field belongs to
+            
+        Returns:
+            ResourceProducer: New resource field instance
+            
+        Raises:
+            ValueError: If creation requirements are not met
+        """
+        # Check if we have enough resources
+        if not ResourceProducer.can_create(field_type, village):
+            raise ValueError("Insufficient resources to create field")
+            
+        # Deduct resources
+        costs = ResourceProducer.get_creation_cost(field_type)
+        for resource, amount in costs.items():
+            current = getattr(village.resources, resource, 0)
+            setattr(village.resources, resource, current - amount)
+            
+        # Create the field
+        field_data = ResourceField(type=field_type, level=1, slot=slot)
+        producer = ResourceProducer(field_data, village)
+        
+        # Mark village as changed
+        village.mark_as_changed()
+        return producer
+    
     def __init__(self, field_data: ResourceField, village):
         self.data = field_data
         self._village = village

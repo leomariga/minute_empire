@@ -3,6 +3,87 @@ from minute_empire.schemas.schemas import ConstructionType, Construction
 
 class Building:
     """Domain class for buildings with game logic"""
+    
+    # Base costs for creating new buildings
+    BASE_CREATION_COSTS = {
+        ConstructionType.CITY_CENTER: {"wood": 150, "stone": 180, "iron": 100},
+        ConstructionType.WAREHOUSE: {"wood": 70, "stone": 90, "iron": 50},
+        ConstructionType.GRANARY: {"wood": 60, "stone": 75, "iron": 40},
+        ConstructionType.WALL: {"wood": 30, "stone": 200, "iron": 80},
+        ConstructionType.RALLY_POINT: {"wood": 100, "stone": 50, "iron": 30},
+        ConstructionType.BARRAKS: {"wood": 130, "stone": 120, "iron": 80},
+        ConstructionType.ARCHERY: {"wood": 170, "stone": 100, "iron": 100},
+        ConstructionType.STABLE: {"wood": 150, "stone": 150, "iron": 150},
+        ConstructionType.HIDE_SPOT: {"wood": 70, "stone": 120, "iron": 60},
+    }
+    
+    @staticmethod
+    def get_creation_cost(building_type: ConstructionType) -> Dict[str, int]:
+        """
+        Get the cost to create a new building.
+        
+        Args:
+            building_type: Type of building to create
+            
+        Returns:
+            Dict[str, int]: Resource costs for creation
+        """
+        if building_type not in Building.BASE_CREATION_COSTS:
+            return {}
+        return Building.BASE_CREATION_COSTS[building_type].copy()
+    
+    @staticmethod
+    def can_create(building_type: ConstructionType, village) -> bool:
+        """
+        Check if a new building can be created.
+        
+        Args:
+            building_type: Type of building to create
+            village: Village where the building would be created
+            
+        Returns:
+            bool: True if creation requirements are met
+        """
+        costs = Building.get_creation_cost(building_type)
+        return all(
+            getattr(village.resources, resource, 0) >= amount
+            for resource, amount in costs.items()
+        )
+    
+    @staticmethod
+    def create(building_type: ConstructionType, slot: int, village) -> 'Building':
+        """
+        Create a new building.
+        
+        Args:
+            building_type: Type of building to create
+            slot: Slot number for the new building
+            village: Village this building belongs to
+            
+        Returns:
+            Building: New building instance
+            
+        Raises:
+            ValueError: If creation requirements are not met
+        """
+        # Check if we have enough resources
+        if not Building.can_create(building_type, village):
+            raise ValueError("Insufficient resources to create building")
+            
+        # Deduct resources
+        costs = Building.get_creation_cost(building_type)
+        for resource, amount in costs.items():
+            current = getattr(village.resources, resource, 0)
+            setattr(village.resources, resource, current - amount)
+            
+        # Create the building
+        construction_data = Construction(type=building_type, level=1, slot=slot)
+        building = Building(construction_data, village)
+        
+        # Mark village as changed
+        village.mark_as_changed()
+        return building
+    
     def __init__(self, construction: Construction, village):
         self.data = construction
         self._village = village
