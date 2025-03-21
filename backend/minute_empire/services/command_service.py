@@ -5,6 +5,7 @@ from minute_empire.schemas.schemas import ResourceFieldType, ConstructionType
 from minute_empire.services.resource_service import ResourceService
 from minute_empire.services.building_service import BuildingService
 from minute_empire.services.resource_field_service import ResourceFieldService
+from minute_empire.services.timed_tasks_service import TimedConstructionService
 
 class CommandService:
     """Service for parsing and executing game commands"""
@@ -14,6 +15,7 @@ class CommandService:
         self.resource_service = ResourceService()
         self.building_service = BuildingService()
         self.resource_field_service = ResourceFieldService()
+        self.construction_service = TimedConstructionService()
         
     def parse_command(self, command: str) -> Tuple[str, Dict]:
         """Parse a command string into action and parameters."""
@@ -119,20 +121,20 @@ class CommandService:
         
         try:
             if target_type == "field":
-                print(f"[CommandService] Delegating field upgrade in slot {slot} to ResourceFieldService")
-                result = await self.resource_field_service.upgrade_field(village.id, slot)
+                print(f"[CommandService] Starting field upgrade in slot {slot} using ConstructionService")
+                result = await self.construction_service.start_field_upgrade(village.id, slot)
                 return {
                     "success": result["success"],
-                    "message": result.get("error", f"Upgraded field in slot {slot}"),
+                    "message": result.get("error", f"Started upgrade of field in slot {slot}"),
                     "data": result
                 }
                 
             elif target_type == "building":
-                print(f"[CommandService] Delegating building upgrade in slot {slot} to BuildingService")
-                result = await self.building_service.upgrade_building(village.id, slot)
+                print(f"[CommandService] Starting building upgrade in slot {slot} using ConstructionService")
+                result = await self.construction_service.start_building_upgrade(village.id, slot)
                 return {
                     "success": result["success"],
-                    "message": result.get("error", f"Upgraded building in slot {slot}"),
+                    "message": result.get("error", f"Started upgrade of building in slot {slot}"),
                     "data": result
                 }
             
@@ -155,21 +157,21 @@ class CommandService:
         try:
             if target_type == "field":
                 field_type = self._get_resource_field_type(subtype)
-                print(f"[CommandService] Delegating field creation of type {field_type} to ResourceFieldService")
-                result = await self.resource_field_service.add_new_field(village.id, field_type, slot)
+                print(f"[CommandService] Starting field construction of type {field_type} using ConstructionService")
+                result = await self.construction_service.start_field_construction(village.id, field_type, slot)
                 return {
                     "success": result["success"],
-                    "message": result.get("error", f"Created {subtype} field in slot {slot}"),
+                    "message": result.get("error", f"Started construction of {subtype} field in slot {slot}"),
                     "data": result
                 }
                 
             elif target_type == "building":
                 building_type = self._get_construction_type(subtype)
-                print(f"[CommandService] Delegating building creation of type {building_type} to BuildingService")
-                result = await self.building_service.add_new_building(village.id, building_type, slot)
+                print(f"[CommandService] Starting building construction of type {building_type} using ConstructionService")
+                result = await self.construction_service.start_building_construction(village.id, building_type, slot)
                 return {
                     "success": result["success"],
-                    "message": result.get("error", f"Created {subtype} building in slot {slot}"),
+                    "message": result.get("error", f"Started construction of {subtype} building in slot {slot}"),
                     "data": result
                 }
             

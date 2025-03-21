@@ -45,40 +45,6 @@ class ResourceProducer:
             for resource, amount in costs.items()
         )
     
-    @staticmethod
-    def create(field_type: ResourceFieldType, slot: int, village) -> 'ResourceProducer':
-        """
-        Create a new resource field.
-        
-        Args:
-            field_type: Type of resource field to create
-            slot: Slot number for the new field
-            village: Village this field belongs to
-            
-        Returns:
-            ResourceProducer: New resource field instance
-            
-        Raises:
-            ValueError: If creation requirements are not met
-        """
-        # Check if we have enough resources
-        if not ResourceProducer.can_create(field_type, village):
-            raise ValueError("Insufficient resources to create field")
-            
-        # Deduct resources
-        costs = ResourceProducer.get_creation_cost(field_type)
-        for resource, amount in costs.items():
-            current = getattr(village.resources, resource, 0)
-            setattr(village.resources, resource, current - amount)
-            
-        # Create the field
-        field_data = ResourceField(type=field_type, level=1, slot=slot)
-        producer = ResourceProducer(field_data, village)
-        
-        # Mark village as changed
-        village.mark_as_changed()
-        return producer
-    
     def __init__(self, field_data: ResourceField, village):
         self.data = field_data
         self._village = village
@@ -162,24 +128,6 @@ class ResourceProducer:
             getattr(self._village._data.resources, resource, 0) >= amount
             for resource, amount in costs.items()
         )
-    
-    def upgrade(self) -> bool:
-        """Upgrade resource field if possible"""
-        if not self.can_upgrade():
-            return False
-            
-        # Deduct resources
-        upgrade_costs = self.get_upgrade_cost()
-        for resource, amount in upgrade_costs.items():
-            current = getattr(self._village._data.resources, resource, 0)
-            setattr(self._village._data.resources, resource, current - amount)
-            
-        # Update field level
-        self.data.level += 1
-        
-        # Mark village as changed
-        self._village.mark_as_changed()
-        return True
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert resource field to dictionary for storage or API responses"""

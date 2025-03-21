@@ -1,8 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from minute_empire.schemas.schemas import VillageInDB, ConstructionType, ResourceFieldType
+from minute_empire.schemas.schemas import TaskType, ConstructionTask, Construction, ResourceField
 from minute_empire.domain.building import Building
 from minute_empire.domain.resource_field import ResourceProducer
+from bson import ObjectId
 
 class Village:
     """Domain class for villages with game logic"""
@@ -207,12 +209,188 @@ class Village:
         """Check if village has unsaved changes"""
         return self._changed
     
+    def deduct_resources(self, costs: Dict[str, int]) -> bool:
+        """
+        Deduct resources from the village and mark it as changed.
+        
+        Args:
+            costs: Dictionary of resource costs to deduct
+            
+        Returns:
+            bool: True if deduction was successful, False if insufficient resources
+        """
+        # Check if we have enough resources
+        for resource, amount in costs.items():
+            current = getattr(self.resources, resource, 0)
+            if current < amount:
+                return False
+                
+        # Deduct resources
+        for resource, amount in costs.items():
+            current = getattr(self.resources, resource, 0)
+            setattr(self.resources, resource, current - amount)
+            
+        # Mark as changed
+        self.mark_as_changed()
+        
+        return True
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert village to dictionary for storage or API responses"""
         return self._data.dict(by_alias=True)
 
+    def add_construction_task(self, task_type: TaskType, target_type: str, 
+                            slot: int, duration_minutes: int) -> ConstructionTask:
+        """
+        Add a new construction task to the village.
+        
+        Args:
+            task_type: Type of task (create or upgrade)
+            target_type: Type of building or field
+            slot: Slot number
+            duration_minutes: How long the task takes to complete
+            
+        Returns:
+            ConstructionTask: The newly created task
+        """
+        # Make sure we have a construction_tasks list
+        if not hasattr(self._data, 'construction_tasks'):
+            self._data.construction_tasks = []
+            
+        # Create the task
+        now = datetime.utcnow()
+        completion_time = now + timedelta(minutes=duration_minutes)
+        
+        task = ConstructionTask(
+            id=str(ObjectId()),
+            task_type=task_type,
+            target_type=target_type,
+            slot=slot,
+            started_at=now,
+            completion_time=completion_time
+        )
+        
+        # Add to village data
+        self._data.construction_tasks.append(task)
+        
+        # Mark as changed
+        self.mark_as_changed()
+        
+        return task
+    
+    def process_construction_tasks(self) -> List[ConstructionTask]:
+        """
+        Process all completed construction tasks.
+        
+        Returns:
+            List[ConstructionTask]: List of tasks that were completed
+        """
+        if not hasattr(self._data, 'construction_tasks'):
+            return []
+            
+        now = datetime.utcnow()
+        completed_tasks = []
+        
+        for task in self._data.construction_tasks:
+            # Skip already processed tasks
+            if task.processed:
+                continue
+                
+            # Check if task is complete
+            if task.completion_time <= now:
+                # Complete the task
+                self.complete_construction_task(task)
+                completed_tasks.append(task)
+                
+        return completed_tasks
+    
+    def complete_construction_task(self, task: ConstructionTask) -> None:
+        """
+        Complete a construction task by creating or upgrading the target.
+        
+        Args:
+            task: The task to complete
+        """
+        from minute_empire.schemas.schemas import ResourceFieldType, ConstructionType
+        
+        # Mark as processed
+        task.processed = True
+        
+        # Handle different task types
+        if task.task_type == TaskType.CREATE_BUILDING:
+            # Convert string to enum
+            building_type = ConstructionType(task.target_type)
+            
+            # Create construction directly without resource check
+            # (resources were already deducted when the task was created)
+            construction = Construction(
+                type=building_type,
+                level=1,
+                slot=task.slot
+            )
+            
+            # Add to village constructions
+            self._data.city.constructions.append(construction)
+            
+            # Clear building cache
+            self._buildings = None
+            print(f"[Village] Completed building creation: {building_type.value} in slot {task.slot}")
+                
+        elif task.task_type == TaskType.UPGRADE_BUILDING:
+            # Find the building
+            building = self.get_building(task.slot)
+            if building:
+                # Just set the level directly without calling upgrade()
+                # (which would check and deduct resources again)
+                building.data.level = task.level
+                
+                # Clear building cache
+                self._buildings = None
+                print(f"[Village] Completed building upgrade: {building.type.value} to level {task.level}")
+            else:
+                print(f"[Village] Failed to complete building upgrade task: Building not found in slot {task.slot}")
+                
+        elif task.task_type == TaskType.CREATE_FIELD:
+            # Convert string to enum
+            field_type = ResourceFieldType(task.target_type)
+            
+            # Create field directly without resource check
+            # (resources were already deducted when the task was created)
+            field = ResourceField(
+                type=field_type,
+                level=1,
+                slot=task.slot
+            )
+            
+            # Add to village fields
+            self._data.resource_fields.append(field)
+            
+            # Clear resource field cache
+            self._resource_fields = None
+            print(f"[Village] Completed field creation: {field_type.value} in slot {task.slot}")
+                
+        elif task.task_type == TaskType.UPGRADE_FIELD:
+            # Find the field
+            field = self.get_resource_field(task.slot)
+            if field:
+                # Just set the level directly without calling upgrade()
+                # (which would check and deduct resources again)
+                field.data.level = task.level
+                
+                # Clear resource field cache
+                self._resource_fields = None
+                print(f"[Village] Completed field upgrade: {field.type.value} to level {task.level}")
+            else:
+                print(f"[Village] Failed to complete field upgrade task: Field not found in slot {task.slot}")
+                
+        # Mark village as changed
+        self.mark_as_changed()
+
     def get_summary(self) -> Dict[str, Any]:
         """Get a summary of the village for display"""
+        # Process any completed construction tasks first
+        self.process_construction_tasks()
+        
         # Get production rates (now safely handled within the method)
         production_rates = self.get_resource_rates()
         
@@ -252,6 +430,24 @@ class Village:
         except Exception:
             pass
             
+        # Get pending construction tasks
+        now = datetime.utcnow()
+        pending_tasks = []
+        
+        if hasattr(self._data, 'construction_tasks'):
+            for task in self._data.construction_tasks:
+                if not task.processed:
+                    pending_tasks.append({
+                        "id": task.id,
+                        "task_type": task.task_type,
+                        "target_type": task.target_type,
+                        "slot": task.slot,
+                        "level": task.level,
+                        "started_at": task.started_at,
+                        "completion_time": task.completion_time,
+                        "time_remaining_seconds": max(0, (task.completion_time - now).total_seconds())
+                    })
+            
         # Basic village info with safe resource access
         return {
             "id": self.id,
@@ -269,6 +465,7 @@ class Village:
             "production_rates": production_rates,
             "building_count": building_count,
             "resource_fields_count": resource_fields_count,
+            "construction_tasks": pending_tasks,
             "res_update_at": self.res_update_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at
@@ -276,147 +473,3 @@ class Village:
     
     def __str__(self) -> str:
         return f"Village: {self.name} at {self.location}"
-
-    def add_building(self, building_type: ConstructionType, slot: int) -> Dict[str, Any]:
-        """
-        Add a new building to the village.
-        
-        Args:
-            building_type: Type of building to create
-            slot: Slot number for the new building
-            
-        Returns:
-            Dict[str, Any]: Result of the operation with success status and error message if any
-        """
-        try:
-            # Check if slot is already occupied
-            if self.get_building(slot):
-                return {
-                    "success": False,
-                    "error": f"Slot {slot} is already occupied"
-                }
-                
-            # Check if we've reached the maximum number of buildings
-            if len(self.get_all_buildings()) >= self.MAX_CONSTRUCTIONS:
-                return {
-                    "success": False,
-                    "error": f"Maximum number of buildings ({self.MAX_CONSTRUCTIONS}) reached"
-                }
-                
-            # Check if we can afford the building
-            if not Building.can_create(building_type, self):
-                costs = Building.get_creation_cost(building_type)
-                missing = {
-                    resource: amount - getattr(self.resources, resource, 0)
-                    for resource, amount in costs.items()
-                    if getattr(self.resources, resource, 0) < amount
-                }
-                return {
-                    "success": False,
-                    "error": "Insufficient resources",
-                    "cost": costs,
-                    "missing": missing,
-                    "current_resources": {
-                        "wood": self.resources.wood,
-                        "stone": self.resources.stone,
-                        "iron": self.resources.iron,
-                        "food": self.resources.food
-                    }
-                }
-            
-            # Create the new building using domain method
-            new_building = Building.create(building_type, slot, self)
-            
-            # Add it to the village constructions
-            self._data.city.constructions.append(new_building.data)
-            
-            # Clear the buildings cache to force reload
-            self._buildings = None
-            
-            return {
-                "success": True,
-                "building_type": building_type.value,
-                "level": 1,
-                "slot": slot
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
-    
-    def add_resource_field(self, field_type: ResourceFieldType, slot: int) -> Dict[str, Any]:
-        """
-        Add a new resource field to the village.
-        
-        Args:
-            field_type: Type of resource field to create
-            slot: Slot number for the new field
-            
-        Returns:
-            Dict[str, Any]: Result of the operation with success status and error message if any
-        """
-        try:
-            # Check if slot is already occupied
-            existing_field = self.get_resource_field(slot)
-            if existing_field:
-                return {
-                    "success": False,
-                    "error": f"Slot {slot} is already occupied by {existing_field.type}"
-                }
-                
-            # Check if we've reached the maximum number of fields
-            current_fields = self.get_all_resource_fields()
-            if len(current_fields) >= self.MAX_FIELDS:
-                return {
-                    "success": False,
-                    "error": f"Maximum number of fields ({self.MAX_FIELDS}) reached"
-                }
-                
-            # Check if we can afford the field
-            if not ResourceProducer.can_create(field_type, self):
-                costs = ResourceProducer.get_creation_cost(field_type)
-                missing = {
-                    resource: amount - getattr(self.resources, resource, 0)
-                    for resource, amount in costs.items()
-                    if getattr(self.resources, resource, 0) < amount
-                }
-                return {
-                    "success": False,
-                    "error": "Insufficient resources",
-                    "cost": costs,
-                    "missing": missing,
-                    "current_resources": {
-                        "wood": self.resources.wood,
-                        "stone": self.resources.stone,
-                        "iron": self.resources.iron,
-                        "food": self.resources.food
-                    }
-                }
-            
-            # Create the new field using domain method
-            new_field = ResourceProducer.create(field_type, slot, self)
-            
-            # Initialize resource_fields list if it doesn't exist
-            if not hasattr(self._data, 'resource_fields'):
-                self._data.resource_fields = []
-            
-            # Add the new field
-            self._data.resource_fields.append(new_field.data)
-            
-            # Clear the resource fields cache to force reload
-            self._resource_fields = None
-            
-            return {
-                "success": True,
-                "field_type": field_type.value,
-                "level": 1,
-                "slot": slot
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            } 

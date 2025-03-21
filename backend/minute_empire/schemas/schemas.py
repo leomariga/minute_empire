@@ -32,10 +32,26 @@ class ConstructionType(str, Enum):
     HIDE_SPOT = "hide_spot"
     WALL = "wall"
 
+class TaskType(str, Enum):
+    CREATE_BUILDING = "create_building"
+    UPGRADE_BUILDING = "upgrade_building"
+    CREATE_FIELD = "create_field"
+    UPGRADE_FIELD = "upgrade_field"
+
 class Construction(BaseModel):
     type: ConstructionType
     level: int = Field(default=0, ge=0)
     slot: int = Field(default=0, ge=0)
+
+class ConstructionTask(BaseModel):
+    id: str
+    task_type: TaskType
+    target_type: str
+    slot: int
+    level: int = Field(default=1)
+    started_at: datetime
+    completion_time: datetime
+    processed: bool = Field(default=False)
 
 class City(BaseModel):
     wall: Construction = Field(default=Construction(type=ConstructionType.WALL, level=0))
@@ -84,6 +100,7 @@ class VillageInDB(BaseModel):
     res_update_at: datetime
     created_at: datetime
     updated_at: datetime
+    construction_tasks: List[ConstructionTask] = Field(default_factory=list)
 
     class Config:
         allow_population_by_field_name = True

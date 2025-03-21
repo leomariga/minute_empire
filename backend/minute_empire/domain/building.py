@@ -50,40 +50,6 @@ class Building:
             for resource, amount in costs.items()
         )
     
-    @staticmethod
-    def create(building_type: ConstructionType, slot: int, village) -> 'Building':
-        """
-        Create a new building.
-        
-        Args:
-            building_type: Type of building to create
-            slot: Slot number for the new building
-            village: Village this building belongs to
-            
-        Returns:
-            Building: New building instance
-            
-        Raises:
-            ValueError: If creation requirements are not met
-        """
-        # Check if we have enough resources
-        if not Building.can_create(building_type, village):
-            raise ValueError("Insufficient resources to create building")
-            
-        # Deduct resources
-        costs = Building.get_creation_cost(building_type)
-        for resource, amount in costs.items():
-            current = getattr(village.resources, resource, 0)
-            setattr(village.resources, resource, current - amount)
-            
-        # Create the building
-        construction_data = Construction(type=building_type, level=1, slot=slot)
-        building = Building(construction_data, village)
-        
-        # Mark village as changed
-        village.mark_as_changed()
-        return building
-    
     def __init__(self, construction: Construction, village):
         self.data = construction
         self._village = village
@@ -151,24 +117,6 @@ class Building:
             getattr(self._village.resources, resource, 0) >= amount
             for resource, amount in costs.items()
         )
-    
-    def upgrade(self) -> bool:
-        """Upgrade building if possible"""
-        if not self.can_upgrade():
-            return False
-            
-        # Deduct resources
-        upgrade_costs = self.get_upgrade_cost()
-        for resource, amount in upgrade_costs.items():
-            current = getattr(self._village._data.resources, resource, 0)
-            setattr(self._village._data.resources, resource, current - amount)
-            
-        # Update building level
-        self.data.level += 1
-        
-        # Mark village as changed
-        self._village.mark_as_changed()
-        return True
     
     def get_production_bonus(self, resource_type: str) -> float:
         """Get production bonus for a specific resource"""
