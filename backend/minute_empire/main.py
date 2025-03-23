@@ -14,7 +14,11 @@ from minute_empire.api.api_models import (
     UserResponse,
     VillageResponse,
     CommandRequest,
-    CommandResponse
+    CommandResponse,
+    MapInfoResponse,
+    MapBounds,
+    MapVillage,
+    Location
 )
 
 app = FastAPI(
@@ -245,6 +249,88 @@ async def execute_command(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/map/info", response_model=MapInfoResponse)
+async def get_map_info(current_user: dict = Depends(get_current_user)):
+    """Get map information including bounds and all villages."""
+    from minute_empire.domain.world import World
+    from minute_empire.repositories.village_repository import VillageRepository
+    import traceback
+    
+    # Initialize repositories
+    village_repo = VillageRepository()
+    
+    try:
+        # Get map bounds from World
+        x_min, x_max, y_min, y_max = World.get_map_bounds()
+        map_size = World.MAP_SIZE
+        
+        # Get all villages
+        try:
+            all_villages = await village_repo.get_all()
+            print(f"Retrieved {len(all_villages) if all_villages else 0} villages")
+        except Exception as village_error:
+            print(f"Error getting villages: {str(village_error)}")
+            print(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error retrieving villages: {str(village_error)}"
+            )
+        
+        # Format village data for the map
+        villages_data = []
+        for i, village in enumerate(all_villages or []):
+            try:
+                if village is not None:
+                    is_owned = village.owner_id == current_user["id"]
+                    # Print village data for debugging
+                    print(f"Village {i}: id={village.id}, location={village.location}, type={type(village.location)}")
+                    
+                    # Extract location safely
+                    x, y = 0, 0
+                    if hasattr(village.location, 'get'):
+                        x = village.location.get("x", 0)
+                        y = village.location.get("y", 0)
+                    elif hasattr(village.location, 'x') and hasattr(village.location, 'y'):
+                        x = village.location.x
+                        y = village.location.y
+                    
+                    villages_data.append(MapVillage(
+                        id=village.id,
+                        name=village.name,
+                        location=Location(x=x, y=y),
+                        owner_id=village.owner_id,
+                        is_owned=is_owned
+                    ))
+            except Exception as village_error:
+                print(f"Error processing village {i}: {village_error}")
+                print(traceback.format_exc())
+                continue
+        
+        # Create the final response
+        try:
+            response = MapInfoResponse(
+                map_bounds=MapBounds(
+                    x_min=x_min,
+                    x_max=x_max,
+                    y_min=y_min,
+                    y_max=y_max
+                ),
+                map_size=map_size,
+                villages=villages_data
+            )
+            return response
+        except Exception as response_error:
+            print(f"Error creating response: {str(response_error)}")
+            print(traceback.format_exc())
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Error creating response: {str(response_error)}"
+            )
+    except Exception as e:
+        print(f"Map info error: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 # Import and include routers

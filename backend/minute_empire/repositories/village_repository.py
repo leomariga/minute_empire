@@ -99,4 +99,22 @@ class VillageRepository:
         """Delete a village"""
         async with get_db() as db:
             result = await db[self.COLLECTION].delete_one({"_id": village_id})
-            return result.deleted_count > 0 
+            return result.deleted_count > 0
+    
+    async def get_all(self) -> List[Village]:
+        """Get all villages in the game world"""
+        async with get_db() as db:
+            cursor = db[self.COLLECTION].find({})
+            villages_data = await cursor.to_list(length=1000)  # Limit to 1000 villages
+            
+            # Convert to domain objects
+            villages = []
+            for village_data in villages_data:
+                try:
+                    village_model = VillageInDB(**village_data)
+                    villages.append(Village(village_model))
+                except Exception as e:
+                    print(f"Error converting village data: {str(e)}")
+                    continue
+                
+            return villages 

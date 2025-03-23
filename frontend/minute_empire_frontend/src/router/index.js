@@ -40,6 +40,14 @@ const routes = [
       requiresAuth: true 
     }
   },
+  {
+    path: '/map',
+    name: 'Map',
+    component: () => import(/* webpackChunkName: "map" */ '@/views/MapView.vue'),
+    meta: {
+      requiresAuth: true
+    }
+  },
   // Catch-all redirect to home
   {
     path: '/:pathMatch(.*)*',

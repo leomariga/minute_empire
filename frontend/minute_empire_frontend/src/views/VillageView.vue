@@ -14,6 +14,11 @@
           </v-card-title>
           <v-card-subtitle>
             <span class="font-weight-bold">Username:</span> {{ userData ? userData.username : 'Loading...' }}
+            <v-spacer></v-spacer>
+            <v-btn color="primary" to="/map" text>
+              <v-icon left>mdi-map</v-icon>
+              World Map
+            </v-btn>
           </v-card-subtitle>
         </v-card>
       </v-col>

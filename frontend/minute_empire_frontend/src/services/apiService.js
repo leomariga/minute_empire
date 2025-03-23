@@ -120,6 +120,28 @@ const apiService = {
       console.error('[ApiService] Command error:', error.response?.data || error.message);
       throw error;
     }
+  },
+
+  /**
+   * Get map information including bounds and villages
+   * @returns {Promise<Object>} Map data including bounds and villages
+   */
+  async getMapInfo() {
+    try {
+      const response = await this._api.get('/map/info');
+      
+      // Validate the response data structure
+      const data = response.data;
+      if (!data || !data.map_bounds || !Array.isArray(data.villages)) {
+        console.error('[ApiService] Invalid map data structure:', data);
+        throw new Error('Invalid map data format received from server');
+      }
+      
+      return data;
+    } catch (error) {
+      console.error('[ApiService] Map info error:', error.response?.data || error.message);
+      throw error;
+    }
   }
 };
 

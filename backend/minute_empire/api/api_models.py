@@ -62,3 +62,26 @@ class CommandResponse(BaseModel):
     success: bool
     message: str
     data: dict = {}
+
+# Map models
+class MapBounds(BaseModel):
+    x_min: int
+    x_max: int
+    y_min: int
+    y_max: int
+
+class Location(BaseModel):
+    x: int = 0
+    y: int = 0
+
+class MapVillage(BaseModel):
+    id: str
+    name: str
+    location: Location
+    owner_id: str
+    is_owned: bool
+
+class MapInfoResponse(BaseModel):
+    map_bounds: MapBounds
+    map_size: int
+    villages: list[MapVillage]
