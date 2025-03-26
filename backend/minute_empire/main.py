@@ -18,7 +18,8 @@ from minute_empire.api.api_models import (
     MapInfoResponse,
     MapBounds,
     MapVillage,
-    Location
+    Location,
+    ResourceField
 )
 
 app = FastAPI(
@@ -256,10 +257,12 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     """Get map information including bounds and all villages."""
     from minute_empire.domain.world import World
     from minute_empire.repositories.village_repository import VillageRepository
+    from minute_empire.services.resource_service import ResourceService
     import traceback
     
-    # Initialize repositories
+    # Initialize repositories and services
     village_repo = VillageRepository()
+    resource_service = ResourceService()
     
     try:
         # Get map bounds from World
@@ -296,13 +299,45 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                         x = village.location.x
                         y = village.location.y
                     
-                    villages_data.append(MapVillage(
+                    # Include resources and city data only for owned villages
+                    resource_fields = None
+                    city = None
+                    if is_owned:
+                        # Update resources before sending
+                        updated_village = await resource_service.update_village_resources(village.id)
+                        print(f"\nProcessing owned village: {village.name}")
+                        
+                        if updated_village:
+                            # Transform resource fields - access directly from _data
+                            if hasattr(updated_village._data, 'resource_fields'):
+                                print(f"Resource fields found in _data: {updated_village._data.resource_fields}")
+                                resource_fields = [
+                                    ResourceField(
+                                        type=field.type,
+                                        level=field.level,
+                                        slot=field.slot
+                                    ) for field in updated_village._data.resource_fields
+                                    if field is not None
+                                ]
+                                print(f"Converted resource fields: {resource_fields}")
+                            else:
+                                print("No resource_fields attribute found in _data")
+                            
+                            # Use city data directly from the village
+                            if hasattr(updated_village, 'city'):
+                                city = updated_village.city
+                    
+                    village_data = MapVillage(
                         id=village.id,
                         name=village.name,
                         location=Location(x=x, y=y),
                         owner_id=village.owner_id,
-                        is_owned=is_owned
-                    ))
+                        is_owned=is_owned,
+                        resource_fields=resource_fields if is_owned else None,
+                        city=city if is_owned else None
+                    )
+                    print(f"Final village data resource_fields: {village_data.resource_fields}")
+                    villages_data.append(village_data)
             except Exception as village_error:
                 print(f"Error processing village {i}: {village_error}")
                 print(traceback.format_exc())

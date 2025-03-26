@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field, validator
 import re
+from typing import Optional, List
+from minute_empire.schemas.schemas import Location, ResourceField, City, Construction, ConstructionType
 
 # Pydantic model for registration request
 class RegistrationRequest(BaseModel):
@@ -47,10 +49,10 @@ class UserResponse(UserBase):
 class VillageResponse(BaseModel):
     id: str
     name: str
-    location: dict
+    location: Location
     owner_id: str
-    resources: dict
-    city: dict
+    resource_fields: List[ResourceField]
+    city: City
     created_at: str
 
 # Command models
@@ -70,18 +72,16 @@ class MapBounds(BaseModel):
     y_min: int
     y_max: int
 
-class Location(BaseModel):
-    x: int = 0
-    y: int = 0
-
 class MapVillage(BaseModel):
     id: str
     name: str
     location: Location
     owner_id: str
     is_owned: bool
+    resource_fields: Optional[List[ResourceField]] = None
+    city: Optional[City] = None
 
 class MapInfoResponse(BaseModel):
     map_bounds: MapBounds
     map_size: int
-    villages: list[MapVillage]
+    villages: List[MapVillage]

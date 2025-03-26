@@ -43,7 +43,7 @@ const routes = [
   {
     path: '/map',
     name: 'Map',
-    component: () => import(/* webpackChunkName: "map" */ '@/views/MapView.vue'),
+    component: () => import(/* webpackChunkName: "map" */ '@/views/MapViewOL.vue'),
     meta: {
       requiresAuth: true
     }
