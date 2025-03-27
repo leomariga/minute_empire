@@ -36,6 +36,18 @@
         <v-icon>mdi-home</v-icon>
       </v-btn>
     </div>
+
+    <!-- Hover Dialog -->
+    <map-hover-dialog
+      :show="hoverDialog.show"
+      :position="hoverDialog.position"
+      :data="hoverDialog.data"
+      :type="hoverDialog.type"
+    >
+      <template #additional-info>
+        <!-- Future expansion slot for additional information -->
+      </template>
+    </map-hover-dialog>
   </v-container>
 </template>
 
@@ -51,14 +63,18 @@ import VectorSource from 'ol/source/Vector';
 import { fromLonLat, useGeographic } from 'ol/proj';
 import { Feature } from 'ol';
 import { Point, Polygon } from 'ol/geom';
-import { Style, Fill, Stroke, Text, Circle } from 'ol/style';
+import { Style, Fill, Stroke, Text, Circle, Icon } from 'ol/style';
 import { defaults as defaultControls } from 'ol/control';
+import MapHoverDialog from '@/components/MapHoverDialog.vue'
 
 // Set up geographic coordinates
 useGeographic();
 
 export default {
   name: 'MapViewOL',
+  components: {
+    MapHoverDialog
+  },
   
   data() {
     return {
@@ -80,7 +96,22 @@ export default {
       gridLayer: null,
       villageLayer: null,
       subgridLayer: null,
-      cityLayer: null
+      cityLayer: null,
+      currentSubgridCell: null,
+      currentCityCell: null,
+      // Add SVG icons for resources
+      resourceIcons: {
+        wood: new URL('@/assets/wood.svg', import.meta.url).href,
+        food: new URL('@/assets/food.svg', import.meta.url).href,
+        stone: new URL('@/assets/stone.svg', import.meta.url).href,
+        iron: new URL('@/assets/iron.svg', import.meta.url).href
+      },
+      hoverDialog: {
+        show: false,
+        position: { x: 0, y: 0 },
+        data: null,
+        type: null
+      }
     };
   },
   
@@ -303,28 +334,52 @@ export default {
     
     updateSubgrids() {
       const zoom = this.map.getView().getZoom();
+      const cellSize = this.calculateCellSize();
+      
+      // Clear all layers first
       this.subgridLayer.getSource().clear();
       this.cityLayer.getSource().clear();
       
+      // Only draw subgrids if zoom level is appropriate
       if (zoom > 3) {
         this.villages.forEach(village => {
-          this.drawVillageSubgrid(village);
+          this.drawVillageSubgrid(village, cellSize);
         });
       }
       
-      if (zoom > 6) {
+      // Only draw city grid if zoom level is appropriate
+      if (zoom > 3) {
         this.villages.forEach(village => {
           this.drawCityGrid(village);
         });
       }
     },
     
-    drawVillageSubgrid(village) {
+    calculateCellSize() {
+      // Get the view's resolution (meters per pixel)
+      const resolution = this.map.getView().getResolution();
+      // Get the viewport size in pixels
+      const viewportSize = this.map.getSize();
+      // Calculate the size of a subgrid cell (0.2 units) in pixels
+      const size = (0.2 * viewportSize[0]) / (this.mapBounds.x_max - this.mapBounds.x_min + 1);
+      return size;
+    },
+    
+    drawVillageSubgrid(village, cellSize) {
       const x = village.location.x;
       const y = village.location.y;
+      const zoom = this.map.getView().getZoom();
+      
+      // Only draw subgrids if zoom level is appropriate
+      if (zoom <= 3) return;
       
       for (let sx = 0; sx < 5; sx++) {
         for (let sy = 0; sy < 5; sy++) {
+          const isCurrentCell = this.currentSubgridCell && 
+            this.currentSubgridCell.village === village &&
+            this.currentSubgridCell.x === sx &&
+            this.currentSubgridCell.y === sy;
+
           const subgridFeature = new Feature({
             geometry: new Polygon([[
               [x + sx * 0.2, y + sy * 0.2],
@@ -339,101 +394,129 @@ export default {
             subgridY: sy
           });
           
-          subgridFeature.setStyle(new Style({
+          // Get the slot number and resource field
+          const slotNumber = this.getSlotFromPosition(sx, sy);
+          const resourceField = village.resource_fields?.find(field => field && field.slot === slotNumber);
+          
+          // Create base style with dynamic opacity based on zoom
+          const baseOpacity = Math.min(1, (zoom - 2) / 2); // Fade in between zoom 2-4
+          const baseStyle = new Style({
             fill: new Fill({
-              color: this.getSubgridColor(sx, sy, village)
+              color: this.getSubgridColor(sx, sy, village, baseOpacity)
             }),
             stroke: new Stroke({
-              color: 'rgba(0, 0, 0, 0.5)',
-              width: 0.5
+              color: isCurrentCell ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+              width: isCurrentCell ? 2 : 0.5
             })
-          }));
-          
-          this.subgridLayer.getSource().addFeature(subgridFeature);
-        }
-      }
-    },
-    
-    drawCityGrid(village) {
-      const x = village.location.x + 0.4;
-      const y = village.location.y + 0.4;
-      
-      for (let cx = 0; cx < 5; cx++) {
-        for (let cy = 0; cy < 5; cy++) {
-          const cityFeature = new Feature({
-            geometry: new Polygon([[
-              [x + cx * 0.04, y + cy * 0.04],
-              [x + (cx + 1) * 0.04, y + cy * 0.04],
-              [x + (cx + 1) * 0.04, y + (cy + 1) * 0.04],
-              [x + cx * 0.04, y + (cy + 1) * 0.04],
-              [x + cx * 0.04, y + cy * 0.04]
-            ]]),
-            type: 'city_grid',
-            village: village,
-            cityX: cx,
-            cityY: cy
           });
           
-          cityFeature.setStyle(new Style({
-            fill: new Fill({
-              color: this.getCityGridColor(cx, cy, village)
-            }),
-            stroke: new Stroke({
-              color: 'rgba(0, 0, 0, 0.5)',
-              width: 0.5
-            })
-          }));
+          subgridFeature.setStyle(baseStyle);
+          this.subgridLayer.getSource().addFeature(subgridFeature);
           
-          this.cityLayer.getSource().addFeature(cityFeature);
+          // Only show resource details at higher zoom levels
+          if (resourceField && zoom > 3) {
+            const detailOpacity = Math.min(1, (zoom - 3) / 2); // Fade in between zoom 3-5
+            
+            // Create a more professional visual style for resource fields
+            const resourceStyle = this.createResourceFieldStyle(resourceField, x + sx * 0.2, y + sy * 0.2, detailOpacity);
+            
+            // Add resource field details as separate features
+            const resourceFeature = new Feature({
+              geometry: new Point([
+                x + sx * 0.2 + 0.1,
+                y + sy * 0.2 + 0.1
+              ]),
+              type: 'resource_field',
+              resource: resourceField
+            });
+            
+            resourceFeature.setStyle(resourceStyle);
+            this.subgridLayer.getSource().addFeature(resourceFeature);
+          }
         }
       }
     },
     
-    getSubgridColor(sx, sy, village) {
+    createResourceFieldStyle(resourceField, x, y, opacity) {
+      const baseSize = 5; // Increased base size for better visibility
+      const level = resourceField.level;
+      const zoom = this.map.getView().getZoom();
+      
+
+
+      // Only add level text at higher zoom levels
+      if (zoom > 9) {
+        // Create a more professional visual style
+        const style = new Style({
+          image: new Circle({
+            radius: baseSize * (1 + level), // Size increases with level
+            fill: new Fill({
+              color: this.getResourceColor(resourceField.type, 0.8)
+            }),
+            stroke: new Stroke({
+              color: 'rgba(0, 0, 0, 0.5)',
+              width: 2
+            })
+          })
+        });
+
+        style.setText(new Text({
+          text: level.toString(),
+          fill: new Fill({
+            color: 'rgba(255, 255, 255, 0.9)'
+          }),
+          stroke: new Stroke({
+            color: 'rgba(0, 0, 0, 0.8)',
+            width: 1
+          }),
+          scale: [2, 2],
+          offsetY: 0
+        }));
+        return style;
+      }else{
+        return null
+      }
+        
+      
+    },
+
+    getResourceColor(type, opacity) {
+      const colors = {
+        food: `rgba(255, 235, 59, ${opacity})`, // Yellow
+        wood: `rgba(139, 195, 74, ${opacity})`, // Green
+        stone: `rgba(158, 158, 158, ${opacity})`, // Gray
+        iron: `rgba(96, 125, 139, ${opacity})` // Blue-gray
+      };
+      return colors[type] || `rgba(255, 255, 255, ${opacity})`;
+    },
+
+    getSubgridColor(sx, sy, village, opacity) {
       // If it's not the player's village, show everything in gray
       if (!village.is_owned) {
-        return 'rgba(158, 158, 158, 0.6)'; // Gray for enemy villages
+        return `rgba(158, 158, 158, ${opacity * 0.6})`; // Gray for enemy villages
       }
 
       // Skip top corners and center
       if ((sx === 0 && sy === 0) || (sx === 4 && sy === 0) || (sx === 2 && sy === 2)) {
-        return 'rgba(255, 255, 255, 0.2)';
+        return `rgba(255, 255, 255, ${opacity * 0.2})`;
       }
 
       // Calculate slot number based on spiral pattern
       const slotNumber = this.getSlotFromPosition(sx, sy);
       
-      // Debug logging
-      console.log('Village data:', {
-        name: village.name,
-        resource_fields: village.resource_fields,
-        slotNumber: slotNumber
-      });
-      
       // If resource_fields array doesn't exist or slot is invalid, return default color
       if (!village.resource_fields || !Array.isArray(village.resource_fields) || slotNumber === null || slotNumber === undefined) {
-        return 'rgba(255, 255, 255, 0.2)';
+        return `rgba(255, 255, 255, ${opacity * 0.2})`;
       }
       
       // Find the resource field for this slot
       const resourceField = village.resource_fields.find(field => field && field.slot === slotNumber);
       if (!resourceField) {
-        return 'rgba(255, 255, 255, 0.2)';
+        return `rgba(255, 255, 255, ${opacity * 0.2})`;
       }
       
-      // Return color based on resource type
-      switch (resourceField.type) {
-        case 'food':
-          return 'rgba(255, 235, 59, 0.6)'; // Yellow for food
-        case 'wood':
-          return 'rgba(139, 195, 74, 0.6)'; // Green for wood
-        case 'stone':
-          return 'rgba(158, 158, 158, 0.6)'; // Gray for stone
-        case 'iron':
-          return 'rgba(96, 125, 139, 0.6)'; // Blue-gray for iron
-        default:
-          return 'rgba(255, 255, 255, 0.2)';
-      }
+      // Return color based on resource type with opacity
+      return this.getResourceColor(resourceField.type, opacity * 0.6);
     },
 
     getSlotFromPosition(sx, sy) {
@@ -451,28 +534,102 @@ export default {
 
     getCitySlotFromPosition(cx, cy) {
       // Define spiral pattern mapping for city buildings
-      // Center is slot 12 (city center)
       // Buildings spiral outward from the center
       const cityPattern = [
         [22,  10,    11,     12,    23],
-        [21,    9,    2,     3,  13],
-        [20,    8,    1,     4,  14],
-        [19,     7,    6,     5,   15],
+        [21,    9,    2,     3,     13],
+        [20,    8,    1,     4,     14],
+        [19,    7,    6,     5,     15],
         [25,  18,    17,     16,    24]
       ];
+      
+      // Add bounds checking
+      if (cy < 0 || cy >= cityPattern.length || cx < 0 || cx >= cityPattern[0].length) {
+        return null;
+      }
       
       return cityPattern[cy][cx];
     },
 
-    getCityGridColor(cx, cy, village) {
+    drawCityGrid(village) {
+      const x = village.location.x + 0.4;
+      const y = village.location.y + 0.4;
+      const zoom = this.map.getView().getZoom();
+      
+      // DO NOT REMOVE THIS COMMENT
+      // // Only show city grid at high zoom levels
+      // if (zoom <= 7){
+      //   return;
+      // }
+      const cityOpacity = 1;
+      
+      for (let cx = 0; cx < 5; cx++) {
+        for (let cy = 0; cy < 5; cy++) {
+          const isCurrentCell = this.currentCityCell && 
+            this.currentCityCell.village === village &&
+            this.currentCityCell.x === cx &&
+            this.currentCityCell.y === cy;
+
+          const cityFeature = new Feature({
+            geometry: new Polygon([[
+              [x + cx * 0.04, y + cy * 0.04],
+              [x + (cx + 1) * 0.04, y + cy * 0.04],
+              [x + (cx + 1) * 0.04, y + (cy + 1) * 0.04],
+              [x + cx * 0.04, y + (cy + 1) * 0.04],
+              [x + cx * 0.04, y + cy * 0.04]
+            ]]),
+            type: 'city_grid',
+            village: village,
+            cityX: cx,
+            cityY: cy
+          });
+          
+          cityFeature.setStyle(new Style({
+            fill: new Fill({
+              color: this.getCityGridColor(cx, cy, village, cityOpacity)
+            }),
+            stroke: new Stroke({
+              color: isCurrentCell ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+              width: isCurrentCell ? 2 : 0.5
+            })
+          }));
+          
+          this.cityLayer.getSource().addFeature(cityFeature);
+
+          // Add building details if there's a construction in this slot
+          if (village.city && village.city.constructions) {
+            const slot = this.getCitySlotFromPosition(cx, cy);
+            const construction = village.city.constructions.find(c => c.slot === slot);
+            
+            if (construction) {
+              const buildingStyle = this.createBuildingStyle(construction, x + cx * 0.04, y + cy * 0.04, cityOpacity);
+              if (buildingStyle) {
+                const buildingFeature = new Feature({
+                  geometry: new Point([
+                    x + cx * 0.04 + 0.02,
+                    y + cy * 0.04 + 0.02
+                  ]),
+                  type: 'building',
+                  building: construction
+                });
+                buildingFeature.setStyle(buildingStyle);
+                this.cityLayer.getSource().addFeature(buildingFeature);
+              }
+            }
+          }
+        }
+      }
+    },
+
+    getCityGridColor(cx, cy, village, opacity) {
       // If it's not the player's village, show everything in black
       if (!village.is_owned) {
-        return 'rgba(0, 0, 0, 0.8)'; // Black for enemy cities
+        return `rgba(0, 0, 0, ${opacity * 0.8})`; // Black for enemy cities
       }
 
       // Check if city data exists
       if (!village.city) {
-        return 'rgba(255, 255, 255, 0.2)'; // Default color if no city data
+        return `rgba(255, 255, 255, ${opacity * 0.2})`; // Default color if no city data
       }
 
       // Get the slot number from the position
@@ -480,13 +637,7 @@ export default {
       
       // If no slot is assigned to this position, return transparent
       if (slot === null) {
-        return 'rgba(255, 255, 255, 0.2)';
-      }
-
-      // City center is always slot 12
-      if (slot === 12) {
-        const centerBuilding = village.city.constructions.find(c => c.type === 'city_center');
-        return centerBuilding ? 'rgba(139, 69, 19, 0.8)' : 'rgba(205, 133, 63, 0.6)';
+        return `rgba(255, 255, 255, ${opacity * 0.2})`;
       }
 
       // Check if there's a construction in this slot
@@ -494,32 +645,33 @@ export default {
       if (construction) {
         switch (construction.type) {
           case 'city_center':
-            return 'rgba(0, 0, 0, 0.8)'; // Default brown
+            return `rgba(0, 0, 0, ${opacity * 0.8})`; // Default brown
           case 'rally_point':
-            return 'rgba(100, 0, 0, 0.7)'; // Default brown
+            return `rgba(100, 0, 0, ${opacity * 0.7})`; // Default brown
           case 'barraks':
-            return 'rgba(220, 20, 60, 0.7)'; // Military buildings - Crimson red
+            return `rgba(220, 20, 60, ${opacity * 0.7})`; // Military buildings - Crimson red
           case 'archery':
-            return 'rgba(178, 34, 34, 0.7)'; // Military buildings - Fire brick red
+            return `rgba(178, 34, 34, ${opacity * 0.7})`; // Military buildings - Fire brick red
           case 'stable':
-            return 'rgba(139, 0, 0, 0.7)'; // Military buildings - Dark red
+            return `rgba(139, 0, 0, ${opacity * 0.7})`; // Military buildings - Dark red
           case 'warehouse':
-            return 'rgba(0, 128, 128, 0.6)'; // Resource buildings - Teal
+            return `rgba(0, 128, 128, ${opacity * 0.6})`; // Resource buildings - Teal
           case 'granary':
-            return 'rgba(0, 100, 0, 0.6)'; // Resource buildings - Dark green
+            return `rgba(0, 100, 0, ${opacity * 0.6})`; // Resource buildings - Dark green
           case 'hide_spot':
-            return 'rgba(128, 128, 0, 0.6)'; // Resource buildings - Olive
+            return `rgba(128, 128, 0, ${opacity * 0.6})`; // Resource buildings - Olive
           default:
-            return 'rgba(139, 69, 19, 0.6)'; // Default brown
+            return `rgba(139, 69, 19, ${opacity * 0.6})`; // Default brown
         }
       }
 
       // Empty buildable slots
-      return 'rgba(255, 255, 255, 0.2)';
+      return `rgba(255, 255, 255, ${opacity * 0.2})`;
     },
     
     handlePointerMove(event) {
       const coords = this.map.getEventCoordinate(event.originalEvent);
+      const pixel = this.map.getEventPixel(event.originalEvent);
       
       // Convert coordinates to grid position with floating point precision
       const gridX = Math.round(coords[0] * 100) / 100;
@@ -532,6 +684,76 @@ export default {
           x: gridX,
           y: gridY
         };
+
+        // Find the village at the current position
+        const village = this.villages.find(v => 
+          Math.floor(gridX) === v.location.x && 
+          Math.floor(gridY) === v.location.y
+        );
+
+        if (village && village.is_owned) {
+          // Calculate subgrid position (0-4)
+          const subgridX = Math.floor((gridX - village.location.x) * 5);
+          const subgridY = Math.floor((gridY - village.location.y) * 5);
+
+          // Calculate city grid position (0-4)
+          const cityX = Math.floor((gridX - (village.location.x + 0.4)) * 25);
+          const cityY = Math.floor((gridY - (village.location.y + 0.4)) * 25);
+
+          // Update current cells
+          this.currentSubgridCell = { village, x: subgridX, y: subgridY };
+          this.currentCityCell = { village, x: cityX, y: cityY };
+
+          // Check for resource field or building at current position
+          const slot = this.getSlotFromPosition(subgridX, subgridY);
+          const resourceField = village.resource_fields?.find(field => field && field.slot === slot);
+          
+          if (resourceField && this.zoomLevel > 7) {
+            this.showHoverDialog(pixel, {
+              type: resourceField.type,
+              slot: resourceField.slot,
+              level: resourceField.level,
+              isEmpty: false
+            }, 'resource');
+          } else if (slot !== null && this.zoomLevel > 7) {
+            // Show empty resource field
+            this.showHoverDialog(pixel, {
+              slot: slot,
+              isEmpty: true
+            }, 'resource');
+          } else if (village.city && village.city.constructions) {
+            const citySlot = this.getCitySlotFromPosition(cityX, cityY);
+            const construction = village.city.constructions.find(c => c.slot === citySlot);
+            
+            if (construction && this.zoomLevel > 9) {
+              this.showHoverDialog(pixel, {
+                type: construction.type,
+                slot: construction.slot,
+                level: construction.level,
+                isEmpty: false
+              }, 'building');
+            } else if (citySlot !== null && this.zoomLevel > 9) {
+              // Show empty building slot
+              this.showHoverDialog(pixel, {
+                slot: citySlot,
+                isEmpty: true
+              }, 'building');
+            } else {
+              this.hideHoverDialog();
+            }
+          } else {
+            this.hideHoverDialog();
+          }
+
+          // Redraw subgrids and city grid to update highlighting
+          this.updateSubgrids();
+        } else {
+          // Clear highlighting if not over a village
+          this.currentSubgridCell = null;
+          this.currentCityCell = null;
+          this.hideHoverDialog();
+          this.updateSubgrids();
+        }
       }
     },
     
@@ -611,6 +833,74 @@ export default {
           width: 2
         })
       });
+    },
+
+    createBuildingStyle(building, x, y, opacity) {
+      const baseSize = 5; // Base size for buildings
+      const zoom = this.map.getView().getZoom();
+
+      // Only show buildings at higher zoom levels
+      if (zoom > 11) {
+        // Create a more professional visual style
+        const style = new Style({
+          image: new Circle({
+            radius: baseSize * 1.5, // Buildings are slightly larger than resource fields
+            fill: new Fill({
+              color: this.getBuildingColor(building.type, 0.8)
+            }),
+            stroke: new Stroke({
+              color: 'rgba(0, 0, 0, 0.5)',
+              width: 2
+            })
+          })
+        });
+
+        style.setText(new Text({
+          text: building.level.toString(),
+          fill: new Fill({
+            color: 'rgba(255, 255, 255, 0.9)'
+          }),
+          stroke: new Stroke({
+            color: 'rgba(0, 0, 0, 0.8)',
+            width: 1
+          }),
+          scale: [2, 2],
+          offsetY: 0
+        }));
+        return style;
+      } else {
+        return null;
+      }
+    },
+
+    getBuildingColor(type, opacity) {
+      const colors = {
+        city_center: `rgba(139, 69, 19, ${opacity})`, // Brown
+        rally_point: `rgba(100, 0, 0, ${opacity})`, // Dark red
+        barraks: `rgba(220, 20, 60, ${opacity})`, // Crimson red
+        archery: `rgba(178, 34, 34, ${opacity})`, // Fire brick red
+        stable: `rgba(139, 0, 0, ${opacity})`, // Dark red
+        warehouse: `rgba(0, 128, 128, ${opacity})`, // Teal
+        granary: `rgba(0, 100, 0, ${opacity})`, // Dark green
+        hide_spot: `rgba(128, 128, 0, ${opacity})` // Olive
+      };
+      return colors[type] || `rgba(139, 69, 19, ${opacity})`; // Default brown
+    },
+
+    showHoverDialog(pixel, data, type) {
+      this.hoverDialog = {
+        show: true,
+        position: {
+          x: pixel[0] + 10, // Offset from cursor
+          y: pixel[1] + 10
+        },
+        data,
+        type
+      };
+    },
+
+    hideHoverDialog() {
+      this.hoverDialog.show = false;
     }
   }
 };
