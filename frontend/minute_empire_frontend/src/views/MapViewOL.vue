@@ -99,7 +99,6 @@ export default {
       cityLayer: null,
       currentSubgridCell: null,
       currentCityCell: null,
-      // Add SVG icons for resources
       resourceIcons: {
         wood: new URL('@/assets/wood.svg', import.meta.url).href,
         food: new URL('@/assets/food.svg', import.meta.url).href,
@@ -111,7 +110,15 @@ export default {
         position: { x: 0, y: 0 },
         data: null,
         type: null
-      }
+      },
+      pointerMoveTimeout: null,
+      lastPointerPosition: null,
+      lastVillageCheck: null,
+      cachedVillagePositions: {},
+      styleCache: {},
+      lastZoomLevel: null,
+      lastUpdateTime: 0,
+      updateThrottle: 100,
     };
   },
   
@@ -333,9 +340,22 @@ export default {
     },
     
     updateSubgrids() {
+      const now = Date.now();
+      if (now - this.lastUpdateTime < this.updateThrottle) {
+        return;
+      }
+      this.lastUpdateTime = now;
+
       const zoom = this.map.getView().getZoom();
       const cellSize = this.calculateCellSize();
       
+      // Only update if zoom level has changed significantly
+      // DO NOT DELET THIS COMMENT
+      // if (this.lastZoomLevel && Math.abs(zoom - this.lastZoomLevel) < 0.5) {
+      //   return;
+      // }
+      this.lastZoomLevel = zoom;
+
       // Clear all layers first
       this.subgridLayer.getSource().clear();
       this.cityLayer.getSource().clear();
@@ -438,18 +458,19 @@ export default {
     },
     
     createResourceFieldStyle(resourceField, x, y, opacity) {
-      const baseSize = 5; // Increased base size for better visibility
+      const cacheKey = `resource_${resourceField.type}_${resourceField.level}_${opacity}`;
+      if (this.styleCache[cacheKey] !== undefined) {
+        return this.styleCache[cacheKey];
+      }
+
+      const baseSize = 5;
       const level = resourceField.level;
       const zoom = this.map.getView().getZoom();
-      
 
-
-      // Only add level text at higher zoom levels
       if (zoom > 9) {
-        // Create a more professional visual style
         const style = new Style({
           image: new Circle({
-            radius: baseSize * (1 + level), // Size increases with level
+            radius: baseSize * (1 + level),
             fill: new Fill({
               color: this.getResourceColor(resourceField.type, 0.8)
             }),
@@ -472,12 +493,11 @@ export default {
           scale: [2, 2],
           offsetY: 0
         }));
+
+        this.styleCache[cacheKey] = style;
         return style;
-      }else{
-        return null
       }
-        
-      
+      return null;
     },
 
     getResourceColor(type, opacity) {
@@ -670,91 +690,138 @@ export default {
     },
     
     handlePointerMove(event) {
-      const coords = this.map.getEventCoordinate(event.originalEvent);
-      const pixel = this.map.getEventPixel(event.originalEvent);
-      
-      // Convert coordinates to grid position with floating point precision
-      const gridX = Math.round(coords[0] * 100) / 100;
-      const gridY = Math.round(coords[1] * 100) / 100;
-      
-      // Only update if coordinates are within bounds
-      if (gridX >= this.mapBounds.x_min && gridX <= this.mapBounds.x_max &&
-          gridY >= this.mapBounds.y_min && gridY <= this.mapBounds.y_max) {
-        this.currentCoords = {
-          x: gridX,
-          y: gridY
-        };
+      // Debounce the pointer move handler
+      if (this.pointerMoveTimeout) {
+        clearTimeout(this.pointerMoveTimeout);
+      }
 
-        // Find the village at the current position
-        const village = this.villages.find(v => 
-          Math.floor(gridX) === v.location.x && 
-          Math.floor(gridY) === v.location.y
-        );
-
-        if (village && village.is_owned) {
-          // Calculate subgrid position (0-4)
-          const subgridX = Math.floor((gridX - village.location.x) * 5);
-          const subgridY = Math.floor((gridY - village.location.y) * 5);
-
-          // Calculate city grid position (0-4)
-          const cityX = Math.floor((gridX - (village.location.x + 0.4)) * 25);
-          const cityY = Math.floor((gridY - (village.location.y + 0.4)) * 25);
-
-          // Update current cells
-          this.currentSubgridCell = { village, x: subgridX, y: subgridY };
-          this.currentCityCell = { village, x: cityX, y: cityY };
-
-          // Check for resource field or building at current position
-          const slot = this.getSlotFromPosition(subgridX, subgridY);
-          const resourceField = village.resource_fields?.find(field => field && field.slot === slot);
+      this.pointerMoveTimeout = setTimeout(() => {
+        const coords = this.map.getEventCoordinate(event.originalEvent);
+        const pixel = this.map.getEventPixel(event.originalEvent);
+        
+        // Convert coordinates to grid position with floating point precision
+        const gridX = Math.round(coords[0] * 100) / 100;
+        const gridY = Math.round(coords[1] * 100) / 100;
+        
+        // Only update if coordinates are within bounds and have changed
+        if (gridX >= this.mapBounds.x_min && gridX <= this.mapBounds.x_max &&
+            gridY >= this.mapBounds.y_min && gridY <= this.mapBounds.y_max &&
+            (!this.lastPointerPosition || 
+             this.lastPointerPosition.x !== gridX || 
+             this.lastPointerPosition.y !== gridY)) {
           
-          if (resourceField && this.zoomLevel > 7) {
-            this.showHoverDialog(pixel, {
-              type: resourceField.type,
-              slot: resourceField.slot,
-              level: resourceField.level,
-              isEmpty: false
-            }, 'resource');
-          } else if (slot !== null && this.zoomLevel > 7) {
-            // Show empty resource field
-            this.showHoverDialog(pixel, {
-              slot: slot,
-              isEmpty: true
-            }, 'resource');
-          } else if (village.city && village.city.constructions) {
-            const citySlot = this.getCitySlotFromPosition(cityX, cityY);
-            const construction = village.city.constructions.find(c => c.slot === citySlot);
+          this.lastPointerPosition = { x: gridX, y: gridY };
+          this.currentCoords = { x: gridX, y: gridY };
+
+          // Find the village at the current position using cached positions
+          const village = this.findVillageAtPosition(gridX, gridY);
+
+          if (village && village.is_owned) {
+            // Calculate subgrid and city positions only if needed
+            const positions = this.calculatePositions(gridX, gridY, village);
             
-            if (construction && this.zoomLevel > 9) {
-              this.showHoverDialog(pixel, {
-                type: construction.type,
-                slot: construction.slot,
-                level: construction.level,
-                isEmpty: false
-              }, 'building');
-            } else if (citySlot !== null && this.zoomLevel > 9) {
-              // Show empty building slot
-              this.showHoverDialog(pixel, {
-                slot: citySlot,
-                isEmpty: true
-              }, 'building');
-            } else {
-              this.hideHoverDialog();
+            // Update current cells only if they've changed
+            if (this.shouldUpdateCells(positions)) {
+              this.currentSubgridCell = positions.subgrid;
+              this.currentCityCell = positions.city;
+              this.updateHoverDialog(pixel, positions, village);
+              this.updateSubgrids();
             }
           } else {
-            this.hideHoverDialog();
+            // Clear highlighting if not over a village
+            this.clearHighlighting();
           }
-
-          // Redraw subgrids and city grid to update highlighting
-          this.updateSubgrids();
-        } else {
-          // Clear highlighting if not over a village
-          this.currentSubgridCell = null;
-          this.currentCityCell = null;
-          this.hideHoverDialog();
-          this.updateSubgrids();
         }
+      }, 16); // ~60fps
+    },
+    
+    findVillageAtPosition(gridX, gridY) {
+      const key = `${Math.floor(gridX)},${Math.floor(gridY)}`;
+      if (this.cachedVillagePositions[key] !== undefined) {
+        return this.cachedVillagePositions[key];
       }
+
+      const village = this.villages.find(v => 
+        Math.floor(gridX) === v.location.x && 
+        Math.floor(gridY) === v.location.y
+      );
+
+      this.cachedVillagePositions[key] = village;
+      return village;
+    },
+
+    calculatePositions(gridX, gridY, village) {
+      const subgridX = Math.floor((gridX - village.location.x) * 5);
+      const subgridY = Math.floor((gridY - village.location.y) * 5);
+      const cityX = Math.floor((gridX - (village.location.x + 0.4)) * 25);
+      const cityY = Math.floor((gridY - (village.location.y + 0.4)) * 25);
+
+      return {
+        subgrid: { village, x: subgridX, y: subgridY },
+        city: { village, x: cityX, y: cityY }
+      };
+    },
+
+    shouldUpdateCells(positions) {
+      return !this.currentSubgridCell || 
+             !this.currentCityCell ||
+             this.currentSubgridCell.village !== positions.subgrid.village ||
+             this.currentSubgridCell.x !== positions.subgrid.x ||
+             this.currentSubgridCell.y !== positions.subgrid.y ||
+             this.currentCityCell.village !== positions.city.village ||
+             this.currentCityCell.x !== positions.city.x ||
+             this.currentCityCell.y !== positions.city.y;
+    },
+
+    updateHoverDialog(pixel, positions, village) {
+      const { subgrid, city } = positions;
+      const zoom = this.map.getView().getZoom();
+
+      // Check for resource field or building at current position
+      const slot = this.getSlotFromPosition(subgrid.x, subgrid.y);
+      const resourceField = village.resource_fields?.find(field => field && field.slot === slot);
+      
+      if (resourceField && zoom > 8) {
+        this.showHoverDialog(pixel, {
+          type: resourceField.type,
+          slot: resourceField.slot,
+          level: resourceField.level,
+          isEmpty: false
+        }, 'resource');
+      } else if (slot !== null && zoom > 8) {
+        this.showHoverDialog(pixel, {
+          slot: slot,
+          isEmpty: true
+        }, 'resource');
+      } else if (village.city && village.city.constructions) {
+        const citySlot = this.getCitySlotFromPosition(city.x, city.y);
+        const construction = village.city.constructions.find(c => c.slot === citySlot);
+        
+        if (construction && zoom > 10) {
+          this.showHoverDialog(pixel, {
+            type: construction.type,
+            slot: construction.slot,
+            level: construction.level,
+            isEmpty: false
+          }, 'building');
+        } else if (citySlot !== null && zoom > 10) {
+          this.showHoverDialog(pixel, {
+            slot: citySlot,
+            isEmpty: true
+          }, 'building');
+        } else {
+          this.hideHoverDialog();
+        }
+      } else {
+        this.hideHoverDialog();
+      }
+    },
+
+    clearHighlighting() {
+      this.currentSubgridCell = null;
+      this.currentCityCell = null;
+      this.hideHoverDialog();
+      this.updateSubgrids();
     },
     
     handleMapClick(event) {
@@ -775,6 +842,7 @@ export default {
     
     handleMoveEnd() {
       this.zoomLevel = this.map.getView().getZoom().toFixed(2);
+      this.clearStyleCache(); // Clear style cache when zoom level changes
       this.updateSubgrids();
     },
     
@@ -836,15 +904,18 @@ export default {
     },
 
     createBuildingStyle(building, x, y, opacity) {
-      const baseSize = 5; // Base size for buildings
+      const cacheKey = `building_${building.type}_${building.level}_${opacity}`;
+      if (this.styleCache[cacheKey] !== undefined) {
+        return this.styleCache[cacheKey];
+      }
+
+      const baseSize = 5;
       const zoom = this.map.getView().getZoom();
 
-      // Only show buildings at higher zoom levels
       if (zoom > 11) {
-        // Create a more professional visual style
         const style = new Style({
           image: new Circle({
-            radius: baseSize * 1.5, // Buildings are slightly larger than resource fields
+            radius: baseSize * 1.5,
             fill: new Fill({
               color: this.getBuildingColor(building.type, 0.8)
             }),
@@ -867,10 +938,11 @@ export default {
           scale: [2, 2],
           offsetY: 0
         }));
+
+        this.styleCache[cacheKey] = style;
         return style;
-      } else {
-        return null;
       }
+      return null;
     },
 
     getBuildingColor(type, opacity) {
@@ -901,6 +973,10 @@ export default {
 
     hideHoverDialog() {
       this.hoverDialog.show = false;
+    },
+
+    clearStyleCache() {
+      this.styleCache = {};
     }
   }
 };

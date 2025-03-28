@@ -79,7 +79,9 @@ export default {
         zIndex: 1000,
         maxWidth: '200px',
         backgroundColor: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(4px)'
+        backdropFilter: 'blur(4px)',
+        transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
+        willChange: 'transform' // Hint to browser about animation
       }
     },
     
@@ -99,7 +101,7 @@ export default {
     
     getTypeColor() {
       if (this.data.isEmpty) {
-        return '#9E9E9E' // Grey for empty slots
+        return '#9E9E9E'
       }
       
       if (this.type === 'resource') {
@@ -111,7 +113,7 @@ export default {
         }
         return colors[this.data.type] || '#FFFFFF'
       } else {
-        return '#795548' // Default brown for buildings
+        return '#795548'
       }
     },
     
@@ -132,6 +134,15 @@ export default {
         return 'mdi-office-building'
       }
     }
+  },
+
+  // Add shouldComponentUpdate logic
+  beforeUpdate() {
+    // Only update if necessary
+    if (!this.show) {
+      return false;
+    }
+    return true;
   }
 }
 </script>
@@ -139,8 +150,10 @@ export default {
 <style scoped>
 .map-hover-dialog {
   border-radius: 8px;
-  transition: all 0.2s ease-in-out;
+  transition: transform 0.2s ease-out;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  contain: content; /* Optimize paint containment */
+  backface-visibility: hidden; /* Prevent flickering */
 }
 
 .map-hover-dialog:hover {
