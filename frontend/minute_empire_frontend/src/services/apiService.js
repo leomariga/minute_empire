@@ -128,7 +128,9 @@ const apiService = {
    */
   async getMapInfo() {
     try {
+      const clientRequestTime = Date.now();
       const response = await this._api.get('/map/info');
+      const clientResponseTime = Date.now();
       
       // Validate the response data structure
       const data = response.data;
@@ -137,7 +139,13 @@ const apiService = {
         throw new Error('Invalid map data format received from server');
       }
       
-      return data;
+      // Enhance the response with client timing information
+      return {
+        ...data,
+        client_request_time: clientRequestTime,
+        client_response_time: clientResponseTime,
+        request_duration: clientResponseTime - clientRequestTime
+      };
     } catch (error) {
       console.error('[ApiService] Map info error:', error.response?.data || error.message);
       throw error;

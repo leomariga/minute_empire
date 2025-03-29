@@ -37,6 +37,19 @@
       </v-btn>
     </div>
 
+    <!-- Focused Village Name -->
+    <div class="focused-village-name" v-if="focusedVillage">
+      {{ focusedVillage.name }}
+    </div>
+
+    <!-- Village Resources Display -->
+    <village-resources-display
+      :show="!!focusedVillage"
+      :village="focusedVillage"
+      :server-time="mapData?.server_time"
+      :client-response-time="mapData?.client_response_time"
+    />
+
     <!-- Hover Dialog -->
     <map-hover-dialog
       :show="hoverDialog.show"
@@ -79,6 +92,7 @@ import { Style, Fill, Stroke, Text, Circle, Icon } from 'ol/style';
 import { defaults as defaultControls } from 'ol/control';
 import MapHoverDialog from '@/components/MapHoverDialog.vue'
 import MapSelectionDialog from '@/components/MapSelectionDialog.vue'
+import VillageResourcesDisplay from '@/components/VillageResourcesDisplay.vue'
 
 // Set up geographic coordinates
 useGeographic();
@@ -87,7 +101,8 @@ export default {
   name: 'MapViewOL',
   components: {
     MapHoverDialog,
-    MapSelectionDialog
+    MapSelectionDialog,
+    VillageResourcesDisplay
   },
   
   data() {
@@ -138,7 +153,11 @@ export default {
         data: null,
         type: null
       },
-      lastClickEvent: null
+      lastClickEvent: null,
+      focusedVillage: null,
+      focusCheckTimer: null,
+      villageRefreshTimer: null,
+      lastVillageRefresh: 0
     };
   },
   
@@ -165,11 +184,24 @@ export default {
   mounted() {
     console.log('Component mounted');
     this.initializeMap();
+    
+    // Start checking for focused village
+    this.startFocusCheck();
   },
   
   beforeDestroy() {
     console.log('Component beforeDestroy');
     window.removeEventListener('resize', this.handleResize);
+    
+    // Clear any timers
+    if (this.focusCheckTimer) {
+      clearInterval(this.focusCheckTimer);
+    }
+    
+    if (this.villageRefreshTimer) {
+      clearTimeout(this.villageRefreshTimer);
+    }
+    
     if (this.map) {
       this.map.setTarget(null);
       this.map = null;
@@ -177,6 +209,113 @@ export default {
   },
   
   methods: {
+    startFocusCheck() {
+      // Check for focused village every 500ms
+      this.focusCheckTimer = setInterval(() => {
+        this.checkFocusedVillage();
+      }, 500);
+      
+      // Start village refresh timer
+      this.scheduleVillageRefresh();
+    },
+    
+    scheduleVillageRefresh() {
+      // Refresh village data every 60 seconds
+      this.villageRefreshTimer = setTimeout(() => {
+        this.refreshFocusedVillage();
+      }, 60000);
+    },
+    
+    async refreshFocusedVillage() {
+      if (this.focusedVillage) {
+        try {
+          // Only refresh if it's been at least 55 seconds since last complete refresh
+          const now = Date.now();
+          if (now - this.lastVillageRefresh > 55000) {
+            console.log('Refreshing village data...');
+            
+            // Get fresh map data
+            const data = await apiService.getMapInfo();
+            this.mapData = data;
+            
+            // Update the villages array
+            this.villages = data.villages.map(village => ({
+              ...village,
+              resource_fields: village.resource_fields || Array(20).fill(null)
+            }));
+            
+            // Update the focused village with fresh data
+            const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
+            if (updatedVillage) {
+              this.focusedVillage = updatedVillage;
+            }
+            
+            this.lastVillageRefresh = now;
+          }
+        } catch (error) {
+          console.error('Error refreshing village data:', error);
+        }
+      }
+      
+      // Schedule next refresh
+      this.scheduleVillageRefresh();
+    },
+    
+    checkFocusedVillage() {
+      if (!this.map) return;
+      
+      const zoom = this.map.getView().getZoom();
+      
+      // Only check for focused village if zoom is high enough
+      if (zoom <= 9) {
+        if (this.focusedVillage) {
+          this.focusedVillage = null;
+        }
+        return;
+      }
+      
+      // Get center coordinates of the viewport
+      const center = this.map.getView().getCenter();
+      
+      // Find the closest village to the center
+      let closestVillage = null;
+      let minDistance = Infinity;
+      
+      this.villages.forEach(village => {
+        if (village.is_owned) {
+          const villageX = village.location.x + 0.5; // Center of the cell
+          const villageY = village.location.y + 0.5;
+          
+          // Calculate Euclidean distance
+          const distance = Math.sqrt(
+            Math.pow(villageX - center[0], 2) + 
+            Math.pow(villageY - center[1], 2)
+          );
+          
+          // Update closest village if this one is closer
+          if (distance < minDistance) {
+            minDistance = distance;
+            closestVillage = village;
+          }
+        }
+      });
+      
+      // Check if the village is within 4 tiles
+      if (closestVillage && minDistance <= 4) {
+        // Only update if it's a different village to avoid unnecessary renders
+        if (!this.focusedVillage || this.focusedVillage.id !== closestVillage.id) {
+          console.log(`Focus changed to village: ${closestVillage.name}`);
+          this.focusedVillage = closestVillage;
+          
+          // Since village focus changed, update last refresh time
+          this.lastVillageRefresh = Date.now();
+        }
+      } else if (this.focusedVillage) {
+        console.log('Focus lost from village');
+        this.focusedVillage = null;
+      }
+    },
+    
     async fetchMapData() {
       try {
         console.log('Fetching map data...');
@@ -910,6 +1049,9 @@ export default {
       this.zoomLevel = this.map.getView().getZoom().toFixed(2);
       this.clearStyleCache(); // Clear style cache when zoom level changes
       this.updateSubgrids();
+      
+      // Check for focused village after the map finishes moving
+      this.checkFocusedVillage();
     },
     
     zoomIn() {
@@ -1145,6 +1287,25 @@ export default {
   z-index: 100;
 }
 
+.focused-village-name {
+  position: absolute;
+  top: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 255, 255, 0.9);
+  color: #333;
+  padding: 4px 12px;
+  border-radius: 15px;
+  font-size: 14px;
+  font-weight: 500;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  white-space: nowrap;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 600px) {
   .map-controls {
     bottom: 15px;
@@ -1156,6 +1317,13 @@ export default {
     left: 10px;
     font-size: 12px;
     padding: 4px 8px;
+  }
+  
+  .focused-village-name {
+    font-size: 12px;
+    padding: 3px 8px;
+    top: 45px;
+    max-width: 180px;
   }
 }
 </style> 
