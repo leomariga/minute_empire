@@ -19,7 +19,11 @@ from minute_empire.api.api_models import (
     MapBounds,
     MapVillage,
     Location,
-    ResourceField
+    ResourceField,
+    ResourceInfo,
+    ResourceFieldsInfo,
+    CityInfo,
+    ConstructionInfo
 )
 
 app = FastAPI(
@@ -258,6 +262,7 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     from minute_empire.domain.world import World
     from minute_empire.repositories.village_repository import VillageRepository
     from minute_empire.services.resource_service import ResourceService
+    from datetime import datetime
     import traceback
     
     # Initialize repositories and services
@@ -283,12 +288,12 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
         
         # Format village data for the map
         villages_data = []
+        user_tasks = []
+        
         for i, village in enumerate(all_villages or []):
             try:
                 if village is not None:
                     is_owned = village.owner_id == current_user["id"]
-                    # Print village data for debugging
-                    print(f"Village {i}: id={village.id}, location={village.location}, type={type(village.location)}")
                     
                     # Extract location safely
                     x, y = 0, 0
@@ -299,44 +304,85 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                         x = village.location.x
                         y = village.location.y
                     
-                    # Include resources and city data only for owned villages
-                    resource_fields = None
-                    city = None
-                    if is_owned:
-                        # Update resources before sending
-                        updated_village = await resource_service.update_village_resources(village.id)
-                        print(f"\nProcessing owned village: {village.name}")
-                        
-                        if updated_village:
-                            # Transform resource fields - access directly from _data
-                            if hasattr(updated_village._data, 'resource_fields'):
-                                print(f"Resource fields found in _data: {updated_village._data.resource_fields}")
-                                resource_fields = [
-                                    ResourceField(
-                                        type=field.type,
-                                        level=field.level,
-                                        slot=field.slot
-                                    ) for field in updated_village._data.resource_fields
-                                    if field is not None
-                                ]
-                                print(f"Converted resource fields: {resource_fields}")
-                            else:
-                                print("No resource_fields attribute found in _data")
-                            
-                            # Use city data directly from the village
-                            if hasattr(updated_village, 'city'):
-                                city = updated_village.city
-                    
+                    # Initialize village data
                     village_data = MapVillage(
                         id=village.id,
                         name=village.name,
                         location=Location(x=x, y=y),
                         owner_id=village.owner_id,
-                        is_owned=is_owned,
-                        resource_fields=resource_fields if is_owned else None,
-                        city=city if is_owned else None
+                        is_owned=is_owned
                     )
-                    print(f"Final village data resource_fields: {village_data.resource_fields}")
+                    
+                    # Only include detailed information for owned villages
+                    if is_owned:
+                        # Update resources before sending
+                        updated_village = await resource_service.update_village_resources(village.id)
+                        
+                        if updated_village:
+                            # Get resource information
+                            resource_rates = updated_village.get_resource_rates()
+                            resources_info = {}
+                            for resource_type in ["wood", "stone", "iron", "food"]:
+                                current = getattr(updated_village.resources, resource_type, 0)
+                                rate = resource_rates.get(resource_type, 0)
+                                capacity = updated_village.calculate_storage_capacity(resource_type)
+                                resources_info[resource_type] = ResourceInfo(
+                                    current=current,
+                                    rate=rate,
+                                    capacity=capacity
+                                )
+                            village_data.resources = resources_info
+                            
+                            # Get resource fields information
+                            if hasattr(updated_village._data, 'resource_fields'):
+                                resource_fields_info = []
+                                for field in updated_village._data.resource_fields:
+                                    if field is not None:
+                                        field_producer = updated_village.get_resource_field(field.slot)
+                                        if field_producer:
+                                            field_info = ResourceFieldsInfo(
+                                                type=field.type,
+                                                level=field.level,
+                                                slot=field.slot,
+                                                current_production_rate=field_producer.get_production_rate(),
+                                                upgrade_cost=field_producer.get_upgrade_cost(),
+                                                upgrade_time=field_producer.get_upgrade_time(),
+                                                next_level_production_rate=field_producer.get_production_rate(field.level + 1)
+                                            )
+                                            resource_fields_info.append(field_info)
+                                village_data.resource_fields = resource_fields_info
+                            
+                            # Get city information
+                            if hasattr(updated_village, 'city'):
+                                city_info = CityInfo()
+                                
+                                # Process constructions
+                                constructions_info = []
+                                for construction in updated_village.city.constructions:
+                                    building = updated_village.get_building(construction.slot)
+                                    if building:
+                                        construction_info = ConstructionInfo(
+                                            type=building.type,
+                                            level=building.level,
+                                            slot=building.slot,
+                                            production_bonus=building.get_production_bonus(),
+                                            upgrade_cost=building.get_upgrade_cost(),
+                                            upgrade_time=building.get_upgrade_time(),
+                                            next_level_bonus=building.get_production_bonus(level=building.level + 1)
+                                        )
+                                        constructions_info.append(construction_info)
+                                city_info.constructions = constructions_info
+                                
+                                village_data.city = city_info
+                            
+                            # Get construction tasks
+                            if hasattr(updated_village._data, 'construction_tasks'):
+                                # Add to user tasks if this is the current user's village
+                                user_tasks.extend([
+                                    task for task in updated_village._data.construction_tasks
+                                    if not task.processed
+                                ])
+                    
                     villages_data.append(village_data)
             except Exception as village_error:
                 print(f"Error processing village {i}: {village_error}")
@@ -353,7 +399,9 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                     y_max=y_max
                 ),
                 map_size=map_size,
-                villages=villages_data
+                villages=villages_data,
+                server_time=datetime.utcnow().isoformat(),
+                user_tasks=user_tasks
             )
             return response
         except Exception as response_error:

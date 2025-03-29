@@ -17,6 +17,19 @@ class Building:
         ConstructionType.HIDE_SPOT: {"wood": 70, "stone": 120, "iron": 60},
     }
     
+    # Base production bonuses for buildings
+    BASE_PRODUCTION_BONUSES = {
+        ConstructionType.CITY_CENTER: 0.05,  # 5% bonus per level
+        ConstructionType.WAREHOUSE: 0.03,    # 3% bonus per level
+        ConstructionType.GRANARY: 0.03,      # 3% bonus per level
+        ConstructionType.WALL: 0.02,         # 2% bonus per level
+        ConstructionType.RALLY_POINT: 0.0,   # No production bonus
+        ConstructionType.BARRAKS: 0.0,       # No production bonus
+        ConstructionType.ARCHERY: 0.0,       # No production bonus
+        ConstructionType.STABLE: 0.0,        # No production bonus
+        ConstructionType.HIDE_SPOT: 0.0,     # No production bonus
+    }
+    
     @staticmethod
     def get_creation_cost(building_type: ConstructionType) -> Dict[str, int]:
         """
@@ -118,14 +131,31 @@ class Building:
             for resource, amount in costs.items()
         )
     
-    def get_production_bonus(self, resource_type: str) -> float:
-        """Get production bonus for a specific resource"""
-        # Example: City center provides small bonus to all resources
-        if self.type == ConstructionType.CITY_CENTER:
-            return 0.05 * self.level  # 5% bonus per level
+    def get_production_bonus(self, level: int = None) -> Dict[str, float]:
+        """
+        Get the production bonus for a specific level for each resource type.
+        If no level is provided, uses the current level.
+        
+        Args:
+            level: The level to calculate the bonus for (defaults to current level)
             
-        # Specialized buildings could provide larger bonuses to specific resources
-        return 0.0
+        Returns:
+            Dict[str, float]: Production bonuses as multipliers for each resource type
+        """
+        if self.type not in Building.BASE_PRODUCTION_BONUSES:
+            return {}
+            
+        base_bonus = Building.BASE_PRODUCTION_BONUSES[self.type]
+        target_level = level if level is not None else self.level
+        bonus_value = base_bonus * target_level
+        
+        # Return bonuses for each resource type
+        return {
+            "wood": bonus_value,
+            "stone": bonus_value,
+            "iron": bonus_value,
+            "food": bonus_value
+        }
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert building to dictionary for storage or API responses"""

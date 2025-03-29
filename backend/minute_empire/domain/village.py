@@ -125,7 +125,10 @@ class Village:
         """Calculate production bonus for a resource type from all buildings"""
         bonus = 0.0
         for building in self.get_all_buildings():
-            bonus += building.get_production_bonus(resource_type)
+            # Get bonus dictionary from building and extract the specific resource value
+            building_bonuses = building.get_production_bonus()
+            if resource_type in building_bonuses:
+                bonus += building_bonuses[resource_type]
         return bonus
     
     def get_resource_rates(self) -> Dict[str, float]:
@@ -152,8 +155,13 @@ class Village:
         # Sum up production from all fields (safely)
         try:
             for field in self.get_all_resource_fields():
-                resource_type = field.type.value  # Convert enum to string
-                rates[resource_type] += field.production_rate
+                # Get production rates dictionary from the field
+                field_rates = field.get_production_rate()
+                
+                # Add each resource rate to the total rates
+                for resource_type, rate in field_rates.items():
+                    if rate > 0 and resource_type in rates:
+                        rates[resource_type] += rate
         except Exception:
             # If any error occurs during calculation, use the defaults
             pass
@@ -172,7 +180,7 @@ class Village:
             current = getattr(self._data.resources, resource_type, 0)
             
             # Calculate storage capacity
-            capacity = self._calculate_storage_capacity(resource_type)
+            capacity = self.calculate_storage_capacity(resource_type)
             
             # Update resource (don't exceed capacity)
             setattr(self._data.resources, resource_type, 
@@ -180,7 +188,7 @@ class Village:
         
         self.mark_as_changed()
     
-    def _calculate_storage_capacity(self, resource_type: str) -> int:
+    def calculate_storage_capacity(self, resource_type: str) -> int:
         """Calculate storage capacity based on warehouse/granary levels"""
         base_capacity = 1000
         

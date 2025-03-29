@@ -48,6 +48,18 @@
         <!-- Future expansion slot for additional information -->
       </template>
     </map-hover-dialog>
+
+    <!-- Selection Dialog -->
+    <map-selection-dialog
+      v-model:show="selectionDialog.show"
+      :data="selectionDialog.data"
+      :type="selectionDialog.type"
+      @upgrade="handleUpgrade"
+    >
+      <template #additional-info>
+        <!-- Future expansion slot for additional information -->
+      </template>
+    </map-selection-dialog>
   </v-container>
 </template>
 
@@ -66,6 +78,7 @@ import { Point, Polygon } from 'ol/geom';
 import { Style, Fill, Stroke, Text, Circle, Icon } from 'ol/style';
 import { defaults as defaultControls } from 'ol/control';
 import MapHoverDialog from '@/components/MapHoverDialog.vue'
+import MapSelectionDialog from '@/components/MapSelectionDialog.vue'
 
 // Set up geographic coordinates
 useGeographic();
@@ -73,7 +86,8 @@ useGeographic();
 export default {
   name: 'MapViewOL',
   components: {
-    MapHoverDialog
+    MapHoverDialog,
+    MapSelectionDialog
   },
   
   data() {
@@ -119,6 +133,12 @@ export default {
       lastZoomLevel: null,
       lastUpdateTime: 0,
       updateThrottle: 100,
+      selectionDialog: {
+        show: false,
+        data: null,
+        type: null
+      },
+      lastClickEvent: null
     };
   },
   
@@ -825,18 +845,64 @@ export default {
     },
     
     handleMapClick(event) {
+      // Store the click event for use in handleUpgrade
+      this.lastClickEvent = event.originalEvent;
+      
       const coords = this.map.getEventCoordinate(event.originalEvent);
-      const x = Math.round(coords[0]);
-      const y = Math.round(coords[1]);
+      const pixel = this.map.getEventPixel(event.originalEvent);
       
-      // Find village at clicked location
-      const village = this.villages.find(v => 
-        v.location.x === x && 
-        v.location.y === y
-      );
+      // Convert coordinates to grid position with floating point precision
+      const gridX = Math.round(coords[0] * 100) / 100;
+      const gridY = Math.round(coords[1] * 100) / 100;
       
-      if (village) {
-        this.onVillageClick(village);
+      // Only update if coordinates are within bounds
+      if (gridX >= this.mapBounds.x_min && gridX <= this.mapBounds.x_max &&
+          gridY >= this.mapBounds.y_min && gridY <= this.mapBounds.y_max) {
+        
+        // Find the village at the current position
+        const village = this.findVillageAtPosition(gridX, gridY);
+
+        if (village && village.is_owned) {
+          // Calculate subgrid and city positions
+          const positions = this.calculatePositions(gridX, gridY, village);
+          const { subgrid, city } = positions;
+          const zoom = this.map.getView().getZoom();
+
+          // Check for resource field or building at current position
+          const slot = this.getSlotFromPosition(subgrid.x, subgrid.y);
+          const resourceField = village.resource_fields?.find(field => field && field.slot === slot);
+          
+          if (resourceField && zoom > 8) {
+            this.showSelectionDialog({
+              type: resourceField.type,
+              slot: resourceField.slot,
+              level: resourceField.level,
+              isEmpty: false
+            }, 'resource');
+          } else if (slot !== null && zoom > 8) {
+            this.showSelectionDialog({
+              slot: slot,
+              isEmpty: true
+            }, 'resource');
+          } else if (village.city && village.city.constructions) {
+            const citySlot = this.getCitySlotFromPosition(city.x, city.y);
+            const construction = village.city.constructions.find(c => c.slot === citySlot);
+            
+            if (construction && zoom > 10) {
+              this.showSelectionDialog({
+                type: construction.type,
+                slot: construction.slot,
+                level: construction.level,
+                isEmpty: false
+              }, 'building');
+            } else if (citySlot !== null && zoom > 10) {
+              this.showSelectionDialog({
+                slot: citySlot,
+                isEmpty: true
+              }, 'building');
+            }
+          }
+        }
       }
     },
     
@@ -873,11 +939,6 @@ export default {
           duration: 500
         });
       }
-    },
-    
-    onVillageClick(village) {
-      // Handle village click (show dialog, etc.)
-      console.log('Village clicked:', village);
     },
     
     handleResize() {
@@ -977,6 +1038,45 @@ export default {
 
     clearStyleCache() {
       this.styleCache = {};
+    },
+
+    showSelectionDialog(data, type) {
+      this.selectionDialog = {
+        show: true,
+        data,
+        type
+      };
+    },
+
+    handleUpgrade({ type, slot, currentLevel }) {
+      // Find the current village based on the last clicked position
+      const coords = this.map.getEventCoordinate(this.lastClickEvent);
+      const gridX = Math.round(coords[0] * 100) / 100;
+      const gridY = Math.round(coords[1] * 100) / 100;
+      
+      const village = this.findVillageAtPosition(gridX, gridY);
+      
+      if (!village || !village.is_owned) {
+        console.error('No owned village found at position');
+        return;
+      }
+
+      // Format the command based on type
+      // Convert 'resource' to 'field' for the command
+      const commandType = type === 'resource' ? 'field' : type;
+      const command = `upgrade ${commandType} in ${slot}`;
+      
+      // Execute the command
+      apiService.executeCommand(village.id, command)
+        .then(response => {
+          console.log('Upgrade command executed:', response);
+          // Refresh map data to show updated state
+          this.fetchMapData();
+        })
+        .catch(error => {
+          console.error('Failed to execute upgrade command:', error);
+          // You might want to show an error message to the user here
+        });
     }
   }
 };

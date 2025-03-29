@@ -12,6 +12,22 @@ class ResourceProducer:
         ResourceFieldType.FOOD: {"wood": 25, "stone": 25, "iron": 15},
     }
     
+    # Base production rates per hour
+    BASE_PRODUCTION_RATES = {
+        ResourceFieldType.WOOD: 30,
+        ResourceFieldType.STONE: 25,
+        ResourceFieldType.IRON: 20,
+        ResourceFieldType.FOOD: 35,
+    }
+    
+    # Base upgrade costs
+    BASE_UPGRADE_COSTS = {
+        ResourceFieldType.WOOD: {"wood": 100, "stone": 80, "iron": 60},
+        ResourceFieldType.STONE: {"wood": 80, "stone": 100, "iron": 60},
+        ResourceFieldType.IRON: {"wood": 60, "stone": 80, "iron": 100},
+        ResourceFieldType.FOOD: {"wood": 80, "stone": 60, "iron": 60},
+    }
+    
     @staticmethod
     def get_creation_cost(field_type: ResourceFieldType) -> Dict[str, int]:
         """
@@ -64,55 +80,59 @@ class ResourceProducer:
         """Get the resource field slot"""
         return self.data.slot
     
-    @property
-    def production_rate(self) -> float:
-        """Calculate hourly production rate based on level"""
-        base_rates = {
-            ResourceFieldType.WOOD: 10,
-            ResourceFieldType.STONE: 8,
-            ResourceFieldType.IRON: 6,
-            ResourceFieldType.FOOD: 12
-        }
+    def get_production_rate(self, level: int = None) -> Dict[str, float]:
+        """
+        Get the production rate for a specific level for each resource type.
+        If no level is provided, uses the current level.
         
-        if self.type not in base_rates:
-            return 0
+        Args:
+            level: The level to calculate the production rate for (defaults to current level)
             
-        # Basic formula: base_rate * (1 + 0.1 * level)
-        base_production = base_rates[self.type] * (1 + 0.1 * self.level)
+        Returns:
+            Dict[str, float]: Production rates per hour for each resource type
+        """
+        if self.type not in ResourceProducer.BASE_PRODUCTION_RATES:
+            return {}
+            
+        base_rate = ResourceProducer.BASE_PRODUCTION_RATES[self.type]
+        target_level = level if level is not None else self.level
+        level_multiplier = 1.2 ** target_level  # 20% increase per level
         
-        # Apply building bonuses
+        # Calculate base rate with level multiplier
+        base_rate_with_level = base_rate * level_multiplier
+        
+        # Get building bonuses
         if hasattr(self._village, 'get_production_bonus_for_resource'):
             bonus_multiplier = 1 + self._village.get_production_bonus_for_resource(self.type.value)
-            return base_production * bonus_multiplier
-            
-        return base_production
+            base_rate_with_level *= bonus_multiplier
+        
+        # Return rates for each resource type
+        return {
+            "wood": base_rate_with_level if self.type == ResourceFieldType.WOOD else 0,
+            "stone": base_rate_with_level if self.type == ResourceFieldType.STONE else 0,
+            "iron": base_rate_with_level if self.type == ResourceFieldType.IRON else 0,
+            "food": base_rate_with_level if self.type == ResourceFieldType.FOOD else 0
+        }
     
     def get_upgrade_cost(self) -> Dict[str, int]:
         """Calculate the cost to upgrade this resource field"""
-        base_costs = {
-            ResourceFieldType.WOOD: {"wood": 50, "stone": 60, "iron": 30},
-            ResourceFieldType.STONE: {"wood": 60, "stone": 50, "iron": 40},
-            ResourceFieldType.IRON: {"wood": 70, "stone": 80, "iron": 50},
-            ResourceFieldType.FOOD: {"wood": 40, "stone": 40, "iron": 20},
-        }
-        
-        if self.type not in base_costs:
+        if self.type not in ResourceProducer.BASE_UPGRADE_COSTS:
             return {}
             
         # Apply level multiplier
-        level_multiplier = 1.4 ** self.level
+        level_multiplier = 1.5 ** self.level
         return {
             resource: int(amount * level_multiplier)
-            for resource, amount in base_costs[self.type].items()
+            for resource, amount in ResourceProducer.BASE_UPGRADE_COSTS[self.type].items()
         }
     
     def get_upgrade_time(self) -> int:
         """Calculate upgrade time in minutes"""
         base_times = {
-            ResourceFieldType.WOOD: 10,
-            ResourceFieldType.STONE: 12,
+            ResourceFieldType.WOOD: 15,
+            ResourceFieldType.STONE: 15,
             ResourceFieldType.IRON: 15,
-            ResourceFieldType.FOOD: 8,
+            ResourceFieldType.FOOD: 15,
         }
         
         if self.type not in base_times:

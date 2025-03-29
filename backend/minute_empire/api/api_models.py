@@ -1,7 +1,7 @@
 from pydantic import BaseModel, Field, validator
 import re
-from typing import Optional, List
-from minute_empire.schemas.schemas import Location, ResourceField, City, Construction, ConstructionType
+from typing import Optional, List, Dict
+from minute_empire.schemas.schemas import Location, ResourceField, City, Construction, ConstructionType, TaskType, ConstructionTask
 
 # Pydantic model for registration request
 class RegistrationRequest(BaseModel):
@@ -65,6 +65,28 @@ class CommandResponse(BaseModel):
     message: str
     data: dict = {}
 
+# Resource and Production Info Models
+class ResourceInfo(BaseModel):
+    current: float = Field(..., description="Current amount of the resource")
+    rate: float = Field(..., description="Current production rate per hour")
+    capacity: float = Field(..., description="Maximum storage capacity")
+
+class ResourceFieldsInfo(ResourceField):
+    current_production_rate: Dict[str, float] = Field(..., description="Current production rates per hour for each resource type")
+    upgrade_cost: Dict[str, int] = Field(..., description="Resource costs to upgrade to next level")
+    upgrade_time: int = Field(..., description="Time in minutes to upgrade to next level")
+    next_level_production_rate: Dict[str, float] = Field(..., description="Production rates at next level for each resource type")
+
+class ConstructionInfo(Construction):
+    production_bonus: Dict[str, float] = Field(..., description="Current production bonuses provided by the building for each resource type")
+    upgrade_cost: Dict[str, int] = Field(..., description="Resource costs to upgrade to next level")
+    upgrade_time: int = Field(..., description="Time in minutes to upgrade to next level")
+    next_level_bonus: Dict[str, float] = Field(..., description="Production bonuses at next level for each resource type")
+
+class CityInfo(BaseModel):
+    wall: Optional[ConstructionInfo] = None
+    constructions: List[ConstructionInfo] = Field(default_factory=list)
+
 # Map models
 class MapBounds(BaseModel):
     x_min: int
@@ -78,10 +100,13 @@ class MapVillage(BaseModel):
     location: Location
     owner_id: str
     is_owned: bool
-    resource_fields: Optional[List[ResourceField]] = None
-    city: Optional[City] = None
+    resources: Dict[str, ResourceInfo] = None
+    resource_fields: Optional[List[ResourceFieldsInfo]] = None
+    city: Optional[CityInfo] = None
 
 class MapInfoResponse(BaseModel):
     map_bounds: MapBounds
     map_size: int
     villages: List[MapVillage]
+    server_time: str = Field(..., description="Current server time when the request was made")
+    user_tasks: Optional[List[ConstructionTask]] = Field(default_factory=list, description="List of user's construction tasks")

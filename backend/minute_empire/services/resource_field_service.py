@@ -28,10 +28,18 @@ class ResourceFieldService:
         
         result = []
         for field in fields:
+            # Get the production rate dictionary
+            production_rates = field.get_production_rate()
+            
+            # Extract the production rate for this field's resource type
+            field_type = field.type.value
+            production_rate = production_rates.get(field_type, 0)
+            
             result.append({
-                "type": field.type.value,
+                "type": field_type,
                 "level": field.level,
                 "slot": field.slot,
+                "production_rate": production_rate,
                 "upgrade_cost": field.get_upgrade_cost(),
                 "upgrade_time": field.get_upgrade_time()
             })
