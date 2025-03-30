@@ -103,10 +103,10 @@ class MapVillage(BaseModel):
     resources: Dict[str, ResourceInfo] = None
     resource_fields: Optional[List[ResourceFieldsInfo]] = None
     city: Optional[CityInfo] = None
+    construction_tasks: Optional[List[ConstructionTask]] = Field(default_factory=list, description="List of village's construction tasks")
 
 class MapInfoResponse(BaseModel):
     map_bounds: MapBounds
     map_size: int
     villages: List[MapVillage]
     server_time: str = Field(..., description="Current server time when the request was made")
-    user_tasks: Optional[List[ConstructionTask]] = Field(default_factory=list, description="List of user's construction tasks")

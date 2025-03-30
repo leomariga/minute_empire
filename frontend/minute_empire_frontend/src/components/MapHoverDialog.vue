@@ -47,6 +47,8 @@
 </template>
 
 <script>
+import { getResourceColor, getResourceIcon, getBuildingColor, getBuildingIcon, UI_COLORS } from '@/constants/gameElements';
+
 export default {
   name: 'MapHoverDialog',
   
@@ -78,7 +80,7 @@ export default {
         top: `${this.position.y}px`,
         zIndex: 1000,
         maxWidth: '200px',
-        backgroundColor: 'rgba(255, 255, 255, 0.95)',
+        backgroundColor: UI_COLORS.BACKGROUND.PRIMARY,
         backdropFilter: 'blur(4px)',
         transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
         willChange: 'transform' // Hint to browser about animation
@@ -101,37 +103,25 @@ export default {
     
     getTypeColor() {
       if (this.data.isEmpty) {
-        return '#9E9E9E'
+        return UI_COLORS.DIALOG.EMPTY_ICON;
       }
       
       if (this.type === 'resource') {
-        const colors = {
-          food: '#FFEB3B',
-          wood: '#8BC34A',
-          stone: '#9E9E9E',
-          iron: '#607D8B'
-        }
-        return colors[this.data.type] || '#FFFFFF'
+        return getResourceColor(this.data.type);
       } else {
-        return '#795548'
+        return getBuildingColor(this.data.type);
       }
     },
     
     getTypeIcon() {
       if (this.data.isEmpty) {
-        return 'mdi-help-circle'
+        return 'mdi-help-circle';
       }
       
       if (this.type === 'resource') {
-        const icons = {
-          food: 'mdi-food',
-          wood: 'mdi-tree',
-          stone: 'mdi-mountain',
-          iron: 'mdi-pickaxe'
-        }
-        return icons[this.data.type] || 'mdi-help-circle'
+        return getResourceIcon(this.data.type);
       } else {
-        return 'mdi-office-building'
+        return getBuildingIcon(this.data.type);
       }
     }
   },

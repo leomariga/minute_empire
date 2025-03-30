@@ -7,7 +7,10 @@
         class="resource-section"
       >
         <div class="resource-content">
-          <div class="resource-icon" :class="resource.name">
+          <div 
+            class="resource-icon" 
+            :style="{ background: getResourceIconBackground(resource.name) }"
+          >
             <v-icon size="26" :color="getResourceColor(resource.name)">{{ getResourceIcon(resource.name) }}</v-icon>
           </div>
           <div class="resource-details">
@@ -30,6 +33,8 @@
 </template>
 
 <script>
+import { getResourceColor, getResourceIcon, RESOURCES } from '@/constants/gameElements';
+
 export default {
   name: 'VillageResourcesDisplay',
   
@@ -156,23 +161,16 @@ export default {
     },
 
     getResourceColor(type, opacity = 1) {
-      const colors = {
-        wood: `rgba(139, 195, 74, ${opacity})`, // Green
-        food: `rgba(255, 193, 7, ${opacity})`, // Amber
-        stone: `rgba(158, 158, 158, ${opacity})`, // Gray
-        iron: `rgba(66, 165, 245, ${opacity})`  // Blue
-      };
-      return colors[type] || `rgba(255, 255, 255, ${opacity})`;
+      return getResourceColor(type, opacity);
     },
     
     getResourceIcon(type) {
-      const icons = {
-        food: 'mdi-food',
-        wood: 'mdi-tree',
-        stone: 'mdi-mountain',
-        iron: 'mdi-pickaxe'
-      };
-      return icons[type] || 'mdi-help-circle';
+      return getResourceIcon(type);
+    },
+    
+    getResourceIconBackground(type) {
+      const normalizedType = type.toUpperCase();
+      return RESOURCES[normalizedType]?.iconBackgroundColor || 'rgba(255, 255, 255, 0.15)';
     },
 
     initializeResourceAmounts() {
@@ -346,22 +344,6 @@ export default {
   justify-content: center;
   margin-right: 10px;
   border-radius: 50%;
-}
-
-.resource-icon.wood {
-  background: rgba(139, 195, 74, 0.15);
-}
-
-.resource-icon.food {
-  background: rgba(255, 193, 7, 0.15);
-}
-
-.resource-icon.stone {
-  background: rgba(158, 158, 158, 0.15);
-}
-
-.resource-icon.iron {
-  background: rgba(66, 165, 245, 0.15);
 }
 
 .resource-details {

@@ -288,7 +288,6 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
         
         # Format village data for the map
         villages_data = []
-        user_tasks = []
         
         for i, village in enumerate(all_villages or []):
             try:
@@ -375,13 +374,13 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                                 
                                 village_data.city = city_info
                             
-                            # Get construction tasks
+                            # Add construction tasks directly to the village
                             if hasattr(updated_village._data, 'construction_tasks'):
-                                # Add to user tasks if this is the current user's village
-                                user_tasks.extend([
+                                # Only include non-processed tasks
+                                village_data.construction_tasks = [
                                     task for task in updated_village._data.construction_tasks
                                     if not task.processed
-                                ])
+                                ]
                     
                     villages_data.append(village_data)
             except Exception as village_error:
@@ -400,8 +399,7 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                 ),
                 map_size=map_size,
                 villages=villages_data,
-                server_time=datetime.utcnow().isoformat(),
-                user_tasks=user_tasks
+                server_time=datetime.utcnow().isoformat()
             )
             return response
         except Exception as response_error:

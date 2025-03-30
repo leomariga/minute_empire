@@ -24,19 +24,6 @@
       Zoom: {{ zoomLevel }}
     </div>
     
-    <!-- Mobile-friendly controls -->
-    <div class="map-controls">
-      <v-btn fab small color="primary" class="mb-2" @click="zoomIn" aria-label="Zoom in">
-        <v-icon>mdi-plus</v-icon>
-      </v-btn>
-      <v-btn fab small color="primary" class="mb-2" @click="zoomOut" aria-label="Zoom out">
-        <v-icon>mdi-minus</v-icon>
-      </v-btn>
-      <v-btn fab small color="primary" @click="resetView" aria-label="Reset view">
-        <v-icon>mdi-home</v-icon>
-      </v-btn>
-    </div>
-
     <!-- Focused Village Name -->
     <div class="focused-village-name" v-if="focusedVillage">
       {{ focusedVillage.name }}
@@ -48,6 +35,17 @@
       :village="focusedVillage"
       :server-time="mapData?.server_time"
       :client-response-time="mapData?.client_response_time"
+    />
+
+    <!-- Construction Tasks Display -->
+    <construction-tasks-display
+      :show="!!focusedVillage"
+      :tasks="focusedVillage?.construction_tasks || []"
+      :villages="villages"
+      :focused-village="focusedVillage"
+      :server-time="mapData?.server_time"
+      :client-response-time="mapData?.client_response_time"
+      @task-completed="handleTaskCompleted"
     />
 
     <!-- Hover Dialog -->
@@ -65,8 +63,10 @@
     <!-- Selection Dialog -->
     <map-selection-dialog
       v-model:show="selectionDialog.show"
-      :data="selectionDialog.data"
+      :slot-id="selectionDialog.slotId"
       :type="selectionDialog.type"
+      :is-empty="selectionDialog.isEmpty"
+      :village="selectionDialog.village"
       @upgrade="handleUpgrade"
     >
       <template #additional-info>
@@ -93,6 +93,8 @@ import { defaults as defaultControls } from 'ol/control';
 import MapHoverDialog from '@/components/MapHoverDialog.vue'
 import MapSelectionDialog from '@/components/MapSelectionDialog.vue'
 import VillageResourcesDisplay from '@/components/VillageResourcesDisplay.vue'
+import ConstructionTasksDisplay from '@/components/ConstructionTasksDisplay.vue'
+import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon } from '@/constants/gameElements';
 
 // Set up geographic coordinates
 useGeographic();
@@ -102,7 +104,8 @@ export default {
   components: {
     MapHoverDialog,
     MapSelectionDialog,
-    VillageResourcesDisplay
+    VillageResourcesDisplay,
+    ConstructionTasksDisplay
   },
   
   data() {
@@ -150,14 +153,17 @@ export default {
       updateThrottle: 100,
       selectionDialog: {
         show: false,
-        data: null,
-        type: null
+        slotId: null,
+        type: null,
+        isEmpty: true,
+        village: null
       },
       lastClickEvent: null,
       focusedVillage: null,
       focusCheckTimer: null,
       villageRefreshTimer: null,
-      lastVillageRefresh: 0
+      lastVillageRefresh: 0,
+      taskCompletionTimer: null
     };
   },
   
@@ -193,13 +199,17 @@ export default {
     console.log('Component beforeDestroy');
     window.removeEventListener('resize', this.handleResize);
     
-    // Clear any timers
+    // Clear all timers
     if (this.focusCheckTimer) {
       clearInterval(this.focusCheckTimer);
     }
     
     if (this.villageRefreshTimer) {
       clearTimeout(this.villageRefreshTimer);
+    }
+    
+    if (this.taskCompletionTimer) {
+      clearTimeout(this.taskCompletionTimer);
     }
     
     if (this.map) {
@@ -226,12 +236,12 @@ export default {
       }, 60000);
     },
     
-    async refreshFocusedVillage() {
+    async refreshFocusedVillage(forceRefresh = false) {
       if (this.focusedVillage) {
         try {
-          // Only refresh if it's been at least 55 seconds since last complete refresh
+          // Only refresh if it's been at least 55 seconds since last complete refresh or if forced
           const now = Date.now();
-          if (now - this.lastVillageRefresh > 55000) {
+          if (forceRefresh || now - this.lastVillageRefresh > 55000) {
             console.log('Refreshing village data...');
             
             // Get fresh map data
@@ -660,13 +670,7 @@ export default {
     },
 
     getResourceColor(type, opacity) {
-      const colors = {
-        food: `rgba(255, 235, 59, ${opacity})`, // Yellow
-        wood: `rgba(139, 195, 74, ${opacity})`, // Green
-        stone: `rgba(158, 158, 158, ${opacity})`, // Gray
-        iron: `rgba(96, 125, 139, ${opacity})` // Blue-gray
-      };
-      return colors[type] || `rgba(255, 255, 255, ${opacity})`;
+      return getResourceColor(type, opacity);
     },
 
     getSubgridColor(sx, sy, village, opacity) {
@@ -822,26 +826,7 @@ export default {
       // Check if there's a construction in this slot
       const construction = village.city.constructions.find(c => c.slot === slot);
       if (construction) {
-        switch (construction.type) {
-          case 'city_center':
-            return `rgba(0, 0, 0, ${opacity * 0.8})`; // Default brown
-          case 'rally_point':
-            return `rgba(100, 0, 0, ${opacity * 0.7})`; // Default brown
-          case 'barraks':
-            return `rgba(220, 20, 60, ${opacity * 0.7})`; // Military buildings - Crimson red
-          case 'archery':
-            return `rgba(178, 34, 34, ${opacity * 0.7})`; // Military buildings - Fire brick red
-          case 'stable':
-            return `rgba(139, 0, 0, ${opacity * 0.7})`; // Military buildings - Dark red
-          case 'warehouse':
-            return `rgba(0, 128, 128, ${opacity * 0.6})`; // Resource buildings - Teal
-          case 'granary':
-            return `rgba(0, 100, 0, ${opacity * 0.6})`; // Resource buildings - Dark green
-          case 'hide_spot':
-            return `rgba(128, 128, 0, ${opacity * 0.6})`; // Resource buildings - Olive
-          default:
-            return `rgba(139, 69, 19, ${opacity * 0.6})`; // Default brown
-        }
+        return this.getBuildingColor(construction.type, opacity * 0.7);
       }
 
       // Empty buildable slots
@@ -1011,35 +996,15 @@ export default {
           const slot = this.getSlotFromPosition(subgrid.x, subgrid.y);
           const resourceField = village.resource_fields?.find(field => field && field.slot === slot);
           
-          if (resourceField && zoom > 8) {
-            this.showSelectionDialog({
-              type: resourceField.type,
-              slot: resourceField.slot,
-              level: resourceField.level,
-              isEmpty: false
-            }, 'resource');
-          } else if (slot !== null && zoom > 8) {
-            this.showSelectionDialog({
-              slot: slot,
-              isEmpty: true
-            }, 'resource');
-          } else if (village.city && village.city.constructions) {
+          if (zoom > 8) {
+            // For resource fields (either existing or empty)
+            this.showSelectionDialog(resourceField, 'resource', village, slot);
+          } else if (village.city && village.city.constructions && zoom > 10) {
+            // For buildings
             const citySlot = this.getCitySlotFromPosition(city.x, city.y);
             const construction = village.city.constructions.find(c => c.slot === citySlot);
             
-            if (construction && zoom > 10) {
-              this.showSelectionDialog({
-                type: construction.type,
-                slot: construction.slot,
-                level: construction.level,
-                isEmpty: false
-              }, 'building');
-            } else if (citySlot !== null && zoom > 10) {
-              this.showSelectionDialog({
-                slot: citySlot,
-                isEmpty: true
-              }, 'building');
-            }
+            this.showSelectionDialog(construction, 'building', village, citySlot);
           }
         }
       }
@@ -1149,17 +1114,11 @@ export default {
     },
 
     getBuildingColor(type, opacity) {
-      const colors = {
-        city_center: `rgba(139, 69, 19, ${opacity})`, // Brown
-        rally_point: `rgba(100, 0, 0, ${opacity})`, // Dark red
-        barraks: `rgba(220, 20, 60, ${opacity})`, // Crimson red
-        archery: `rgba(178, 34, 34, ${opacity})`, // Fire brick red
-        stable: `rgba(139, 0, 0, ${opacity})`, // Dark red
-        warehouse: `rgba(0, 128, 128, ${opacity})`, // Teal
-        granary: `rgba(0, 100, 0, ${opacity})`, // Dark green
-        hide_spot: `rgba(128, 128, 0, ${opacity})` // Olive
-      };
-      return colors[type] || `rgba(139, 69, 19, ${opacity})`; // Default brown
+      return getBuildingColor(type, opacity);
+    },
+
+    getBuildingIcon(type) {
+      return getBuildingIcon(type);
     },
 
     showHoverDialog(pixel, data, type) {
@@ -1182,11 +1141,13 @@ export default {
       this.styleCache = {};
     },
 
-    showSelectionDialog(data, type) {
+    showSelectionDialog(object, type, village, slotId) {
       this.selectionDialog = {
         show: true,
-        data,
-        type
+        slotId: object?.slot || slotId,
+        type,
+        isEmpty: !object,
+        village: village
       };
     },
 
@@ -1219,6 +1180,22 @@ export default {
           console.error('Failed to execute upgrade command:', error);
           // You might want to show an error message to the user here
         });
+    },
+
+    handleTaskCompleted(task) {
+      console.log('Task completed:', task);
+      
+      // Wait 1 second before refreshing the village data
+      if (this.taskCompletionTimer) {
+        clearTimeout(this.taskCompletionTimer);
+      }
+      
+      this.taskCompletionTimer = setTimeout(() => {
+        console.log('Refreshing village data after task completion');
+        if (this.focusedVillage) {
+          this.refreshFocusedVillage(true); // Force refresh
+        }
+      }, 1000);
     }
   }
 };
@@ -1273,20 +1250,6 @@ export default {
   z-index: 100;
 }
 
-.map-controls {
-  position: absolute;
-  bottom: 20px;
-  right: 20px;
-  background-color: rgba(255, 255, 255, 0.8);
-  padding: 8px;
-  border-radius: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  z-index: 100;
-}
-
 .focused-village-name {
   position: absolute;
   top: 50px;
@@ -1307,11 +1270,6 @@ export default {
 }
 
 @media (max-width: 600px) {
-  .map-controls {
-    bottom: 15px;
-    right: 15px;
-  }
-  
   .coords-display {
     top: 10px;
     left: 10px;
@@ -1325,5 +1283,9 @@ export default {
     top: 45px;
     max-width: 180px;
   }
+}
+
+.map-controls {
+  display: none; /* Hide the controls instead of removing them entirely */
 }
 </style> 
