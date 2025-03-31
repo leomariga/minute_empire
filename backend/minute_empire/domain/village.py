@@ -134,10 +134,10 @@ class Village:
     def get_resource_rates(self) -> Dict[str, float]:
         """Calculate hourly production rates for all resources"""
         rates = {
-            "wood": 600,
-            "stone": 600, 
-            "iron": 600,
-            "food": 600
+            "wood": 9999,
+            "stone": 9999, 
+            "iron": 9999,
+            "food": 9999
         }
         
         # Check if resource fields exist and are initialized

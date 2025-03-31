@@ -127,26 +127,37 @@
 
               <!-- Buildings - show production bonuses -->
               <template v-else>
-                <div class="mini-bonus-list">
-                  <div v-for="(bonus, resource) in fieldOrBuilding.production_bonus" 
-                       :key="resource" 
-                       v-if="bonus > 0" 
-                       class="mini-bonus-row">
-                    <div class="mini-resource">
-                      <v-icon size="16" :color="resourceColor(resource)">{{ resourceIcon(resource) }}</v-icon>
-                      <span>+{{ formatPercent(bonus) }}</span>
+                <div class="mini-display">
+                  <div class="d-flex flex-column w-100">
+                    <!-- Current production bonuses -->
+                    <div class="production-row">
+                      <div class="production-header d-flex mb-0">
+                        <div class="production-labels">
+                          <div class="production-label">Bonus:</div>
+                          <div v-if="!isBeingUpgraded && hasNextLevelBonuses" class="next-level-main-label">
+                            in level {{ (fieldOrBuilding?.level || 0) + 1 }}
+                          </div>
+                        </div>
+                        <div class="d-flex flex-wrap production-values">
+                          <template v-for="resourceType in ['wood', 'food', 'stone', 'iron']" :key="resourceType">
+                            <div v-if="hasBonus(resourceType)" class="mini-resource-production">
+                              <v-icon size="16" :color="resourceColor(resourceType)">{{ resourceIcon(resourceType) }}</v-icon>
+                              <div class="d-flex flex-column" style="line-height: 1.1">
+                                <span>+{{ formatPercent(getCurrentBonus(resourceType)) }}</span>
+                                <div v-if="!isBeingUpgraded && hasNextLevelBonus(resourceType)" class="next-level-row">
+                                  <span class="next-level-rate">+{{ formatPercent(getNextLevelBonus(resourceType)) }}</span>
+                                </div>
+                              </div>
+                            </div>
+                          </template>
+                        </div>
+                      </div>
                     </div>
-                    
-                    <span v-if="!isBeingUpgraded && fieldOrBuilding.next_level_bonus && fieldOrBuilding.next_level_bonus[resource] > 0"
-                         class="mini-next">
-                      <v-icon size="12" color="success">mdi-arrow-up-bold</v-icon>
-                      <span class="success--text">{{ formatPercent(fieldOrBuilding.next_level_bonus[resource]) }}</span>
-                    </span>
                   </div>
-                  
-                  <!-- If no bonuses -->
-                  <div v-if="!hasAnyProductionBonus" class="mini-empty">No bonuses</div>
                 </div>
+
+                <!-- If no bonuses -->
+                <div v-if="!hasAnyProductionBonus" class="mini-empty">No bonuses</div>
               </template>
             </div>
           </div>
@@ -582,6 +593,46 @@ export default {
       }
       // Then check if it has a value greater than 0
       const value = this.fieldOrBuilding.next_level_production_rate[resourceType];
+      return value && parseFloat(value) > 0;
+    },
+
+    hasBonus(resourceType) {
+      if (!this.fieldOrBuilding || !this.fieldOrBuilding.production_bonus) {
+        return false;
+      }
+      // First check if the property exists at all
+      if (!(resourceType in this.fieldOrBuilding.production_bonus)) {
+        return false;
+      }
+      // Then check if it has a value greater than 0
+      const value = this.fieldOrBuilding.production_bonus[resourceType];
+      return value && parseFloat(value) > 0;
+    },
+
+    getCurrentBonus(resourceType) {
+      if (!this.fieldOrBuilding || !this.fieldOrBuilding.production_bonus) {
+        return 0;
+      }
+      return this.fieldOrBuilding.production_bonus[resourceType] || 0;
+    },
+
+    getNextLevelBonus(resourceType) {
+      if (!this.fieldOrBuilding || !this.fieldOrBuilding.next_level_bonus) {
+        return 0;
+      }
+      return this.fieldOrBuilding.next_level_bonus[resourceType] || 0;
+    },
+    
+    hasNextLevelBonus(resourceType) {
+      if (!this.fieldOrBuilding || !this.fieldOrBuilding.next_level_bonus) {
+        return false;
+      }
+      // First check if the property exists at all
+      if (!(resourceType in this.fieldOrBuilding.next_level_bonus)) {
+        return false;
+      }
+      // Then check if it has a value greater than 0
+      const value = this.fieldOrBuilding.next_level_bonus[resourceType];
       return value && parseFloat(value) > 0;
     }
   },

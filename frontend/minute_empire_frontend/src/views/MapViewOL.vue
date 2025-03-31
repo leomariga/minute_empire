@@ -352,9 +352,12 @@ export default {
         
         // Center the map
         this.resetView();
+        
+        return data; // Return the data to allow promise chaining
       } catch (error) {
         console.error('Error fetching map data:', error);
         this.error = 'Failed to load map data. Please try again later.';
+        throw error; // Re-throw to allow error handling in promise chain
       } finally {
         this.loading = false;
       }
@@ -996,15 +999,17 @@ export default {
           const slot = this.getSlotFromPosition(subgrid.x, subgrid.y);
           const resourceField = village.resource_fields?.find(field => field && field.slot === slot);
           
-          if (zoom > 8) {
-            // For resource fields (either existing or empty)
-            this.showSelectionDialog(resourceField, 'resource', village, slot);
-          } else if (village.city && village.city.constructions && zoom > 10) {
-            // For buildings
-            const citySlot = this.getCitySlotFromPosition(city.x, city.y);
-            const construction = village.city.constructions.find(c => c.slot === citySlot);
-            
+          // Check if the click is on a city building
+          const citySlot = this.getCitySlotFromPosition(city.x, city.y);
+          const construction = village.city?.constructions?.find(c => c && c.slot === citySlot);
+          
+          // Only show building dialog if we clicked on an actual building 
+          // AND we're zoomed in enough to see buildings
+          if (construction && zoom > 10) {
             this.showSelectionDialog(construction, 'building', village, citySlot);
+          } else if (slot !== null) {
+            // Otherwise show resource field dialog (either existing or empty)
+            this.showSelectionDialog(resourceField, 'resource', village, slot);
           }
         }
       }
@@ -1142,12 +1147,15 @@ export default {
     },
 
     showSelectionDialog(object, type, village, slotId) {
+      // Find the most up-to-date village data
+      const updatedVillage = this.villages.find(v => v.id === village.id) || village;
+      
       this.selectionDialog = {
         show: true,
         slotId: object?.slot || slotId,
         type,
         isEmpty: !object,
-        village: village
+        village: updatedVillage
       };
     },
 
@@ -1173,8 +1181,25 @@ export default {
       apiService.executeCommand(village.id, command)
         .then(response => {
           console.log('Upgrade command executed:', response);
-          // Refresh map data to show updated state
-          this.fetchMapData();
+          
+          // Wait 1 second before fetching fresh data to ensure the server has registered the task
+          setTimeout(() => {
+            // Refresh map data to show updated state
+            this.fetchMapData().then(() => {
+              // After fresh data is loaded, if the dialog is still open, update it with fresh data
+              if (this.selectionDialog.show && this.selectionDialog.slotId === slot && this.selectionDialog.type === type) {
+                const freshVillage = this.villages.find(v => v.id === village.id);
+                if (freshVillage) {
+                  this.selectionDialog.village = freshVillage;
+                }
+              }
+            });
+            
+            // If we have a focused village, force-refresh it too
+            if (this.focusedVillage && this.focusedVillage.id === village.id) {
+              this.refreshFocusedVillage(true);
+            }
+          }, 1000);
         })
         .catch(error => {
           console.error('Failed to execute upgrade command:', error);
