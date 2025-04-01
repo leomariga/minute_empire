@@ -18,6 +18,7 @@ from minute_empire.api.api_models import (
     MapInfoResponse,
     MapBounds,
     MapVillage,
+    UserBasicInfo,
     Location,
     ResourceField,
     ResourceInfo,
@@ -305,12 +306,20 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                         x = village.location.x
                         y = village.location.y
                     
+                    # Get user information for the village owner
+                    owner = await auth_service.get_user_by_id(village.owner_id)
+                    user_info = UserBasicInfo(
+                        id=owner["id"],
+                        family_name=owner["family_name"],
+                        color=owner["color"]
+                    )
+                    
                     # Initialize village data
                     village_data = MapVillage(
                         id=village.id,
                         name=village.name,
                         location=Location(x=x, y=y),
-                        owner_id=village.owner_id,
+                        user_info=user_info,
                         is_owned=is_owned
                     )
                     

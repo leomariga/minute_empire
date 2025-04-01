@@ -6,8 +6,18 @@
     elevation="4"
   >
     <v-card-text class="pa-2">
-      <!-- Header -->
-      <div class="d-flex align-center mb-2">
+      <!-- Village Info Header -->
+      <div v-if="type === 'village'" class="village-header">
+        <!-- Village Name -->
+        <div class="village-name">
+          {{ data.name }}
+        </div>
+        <!-- Color Accent -->
+        <div class="color-accent" :style="accentStyle"></div>
+      </div>
+
+      <!-- Resource/Building Info Header -->
+      <div v-else class="d-flex align-center mb-2">
         <v-icon
           :color="getTypeColor"
           class="mr-2"
@@ -22,22 +32,37 @@
 
       <!-- Content -->
       <div class="d-flex flex-column">
-        <div class="d-flex justify-space-between align-center mb-1">
-          <span class="text-caption text-grey">Slot:</span>
-          <span class="text-caption font-weight-medium">{{ data.slot }}</span>
-        </div>
-        
-        <!-- Show level only if not empty -->
-        <div v-if="!data.isEmpty" class="d-flex justify-space-between align-center mb-1">
-          <span class="text-caption text-grey">Level:</span>
-          <span class="text-caption font-weight-medium">{{ data.level }}</span>
-        </div>
-        
-        <!-- Show empty message if empty -->
-        <div v-else class="d-flex align-center">
-          <v-icon size="16" color="grey" class="mr-1">mdi-information</v-icon>
-          <span class="text-caption text-grey">Empty slot</span>
-        </div>
+        <!-- Village Info Content -->
+        <template v-if="type === 'village'">
+          <div class="family-info">
+            <div class="family-name">
+              <v-icon size="16" color="grey" class="mr-1">mdi-account-group</v-icon>
+              {{ data.user_info.family_name }}
+            </div>
+            <div class="coordinates">
+              <v-icon size="16" color="grey" class="mr-1">mdi-map-marker</v-icon>
+              X: {{ data.location.x }}, Y: {{ data.location.y }}
+            </div>
+          </div>
+        </template>
+
+        <!-- Resource/Building Info Content -->
+        <template v-else>
+          <div class="d-flex justify-space-between align-center mb-1">
+            <span class="text-caption text-grey">Slot:</span>
+            <span class="text-caption font-weight-medium">{{ data.slot }}</span>
+          </div>
+          
+          <div v-if="!data.isEmpty" class="d-flex justify-space-between align-center mb-1">
+            <span class="text-caption text-grey">Level:</span>
+            <span class="text-caption font-weight-medium">{{ data.level }}</span>
+          </div>
+          
+          <div v-else class="d-flex align-center">
+            <v-icon size="16" color="grey" class="mr-1">mdi-information</v-icon>
+            <span class="text-caption text-grey">Empty slot</span>
+          </div>
+        </template>
         
         <!-- Dynamic content slots for future expansion -->
         <slot name="additional-info"></slot>
@@ -68,7 +93,7 @@ export default {
     type: {
       type: String,
       required: true,
-      validator: value => ['resource', 'building'].includes(value)
+      validator: value => ['resource', 'building', 'village'].includes(value)
     }
   },
   
@@ -79,15 +104,17 @@ export default {
         left: `${this.position.x}px`,
         top: `${this.position.y}px`,
         zIndex: 1000,
-        maxWidth: '200px',
+        maxWidth: '250px',
         backgroundColor: UI_COLORS.BACKGROUND.PRIMARY,
         backdropFilter: 'blur(4px)',
-        transform: 'translate3d(0, 0, 0)', // Force GPU acceleration
-        willChange: 'transform' // Hint to browser about animation
+        transform: 'translate3d(0, 0, 0)',
+        willChange: 'transform'
       }
     },
     
     title() {
+      if (this.type === 'village') return '';
+      
       if (this.data.isEmpty) {
         return this.type === 'resource' ? 'Empty Resource Field' : 'Empty Building Slot'
       }
@@ -123,12 +150,19 @@ export default {
       } else {
         return getBuildingIcon(this.data.type);
       }
+    },
+
+    accentStyle() {
+      if (this.type === 'village' && this.data.user_info?.color) {
+        return {
+          backgroundColor: this.data.user_info.color
+        }
+      }
+      return {}
     }
   },
 
-  // Add shouldComponentUpdate logic
   beforeUpdate() {
-    // Only update if necessary
     if (!this.show) {
       return false;
     }
@@ -139,14 +173,71 @@ export default {
 
 <style scoped>
 .map-hover-dialog {
-  border-radius: 8px;
+  border-radius: 4px;
   transition: transform 0.2s ease-out;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  contain: content; /* Optimize paint containment */
-  backface-visibility: hidden; /* Prevent flickering */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  contain: content;
+  backface-visibility: hidden;
+  border: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 .map-hover-dialog:hover {
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.village-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  position: relative;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.color-accent {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
+}
+
+.village-name {
+  font-size: 1.1em;
+  font-weight: 600;
+  color: #2c3e50;
+  letter-spacing: 0.5px;
+}
+
+.family-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 0 12px;
+}
+
+.family-name {
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  color: #34495e;
+  font-weight: 500;
+}
+
+.family-name .v-icon {
+  color: var(--player-color);
+}
+
+.coordinates {
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  color: #7f8c8d;
+}
+
+.coordinates .v-icon {
+  color: var(--player-color);
 }
 </style> 

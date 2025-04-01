@@ -45,6 +45,12 @@ class UserBase(BaseModel):
 class UserResponse(UserBase):
     id: str
 
+# User basic info model for map display
+class UserBasicInfo(BaseModel):
+    id: str = Field(..., description="User's ID")
+    family_name: str = Field(..., description="User's family name")
+    color: str = Field(..., description="User's color code")
+
 # Village models
 class VillageResponse(BaseModel):
     id: str
@@ -98,7 +104,7 @@ class MapVillage(BaseModel):
     id: str
     name: str
     location: Location
-    owner_id: str
+    user_info: UserBasicInfo = Field(..., description="User information containing id, family_name, and color")
     is_owned: bool
     resources: Dict[str, ResourceInfo] = None
     resource_fields: Optional[List[ResourceFieldsInfo]] = None

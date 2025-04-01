@@ -872,14 +872,26 @@ export default {
     },
 
     getSubgridColor(sx, sy, village, opacity) {
-      // If it's not the player's village, show everything in gray
+      // If it's not the player's village, use the owner's color
       if (!village.is_owned) {
-        return `rgba(158, 158, 158, ${opacity * 0.6})`; // Gray for enemy villages
+        // Skip top corners and center
+        if ((sx === 0 && sy === 0) || (sx === 4 && sy === 0) || 
+            (sx === 0 && sy === 4) || (sx === 4 && sy === 4)) {
+          // For corners, use transparent
+          return 'rgba(255, 255, 255, 0)';
+        }
+        // For main slots, use a lighter version of the user's color
+        const hex = village.user_info.color;
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r}, ${g}, ${b}, 0.9)`;
       }
 
       // Skip top corners and center
-      if ((sx === 0 && sy === 0) || (sx === 4 && sy === 0) || (sx === 2 && sy === 2)) {
-        return `rgba(255, 255, 255, ${opacity * 0.2})`;
+      if ((sx === 0 && sy === 0) || (sx === 4 && sy === 0) || 
+          (sx === 0 && sy === 4) || (sx === 4 && sy === 4) || (sx === 2 && sy === 2)) {
+        return 'rgba(255, 255, 255, 0)';
       }
 
       // Calculate slot number based on spiral pattern
@@ -1021,7 +1033,7 @@ export default {
     getCityGridColor(cx, cy, village, opacity) {
       // If it's not the player's village, show everything in black
       if (!village.is_owned) {
-        return `rgba(0, 0, 0, ${opacity * 0.8})`; // Black for enemy cities
+        return `rgba(0, 0, 0, ${opacity * 0.4})`; // Black for enemy cities
       }
 
       // Check if city data exists
@@ -1074,16 +1086,23 @@ export default {
           // Find the village at the current position using cached positions
           const village = this.findVillageAtPosition(gridX, gridY);
 
-          if (village && village.is_owned) {
-            // Calculate subgrid and city positions only if needed
-            const positions = this.calculatePositions(gridX, gridY, village);
-            
-            // Update current cells only if they've changed
-            if (this.shouldUpdateCells(positions)) {
-              this.currentSubgridCell = positions.subgrid;
-              this.currentCityCell = positions.city;
-              this.updateHoverDialog(pixel, positions, village);
-              this.updateSubgrids();
+          if (village) {
+            if (!village.is_owned) {
+              // For enemy villages, just show the village info
+              this.showHoverDialog(pixel, village, 'village');
+              this.currentSubgridCell = null;
+              this.currentCityCell = null;
+            } else {
+              // For owned villages, calculate positions and show resource/building info
+              const positions = this.calculatePositions(gridX, gridY, village);
+              
+              // Update current cells only if they've changed
+              if (this.shouldUpdateCells(positions)) {
+                this.currentSubgridCell = positions.subgrid;
+                this.currentCityCell = positions.city;
+                this.updateHoverDialog(pixel, positions, village);
+                this.updateSubgrids();
+              }
             }
           } else {
             // Clear highlighting if not over a village
@@ -1429,17 +1448,32 @@ export default {
       this.styleCache = {};
     },
 
-    showSelectionDialog(object, type, village, slotId) {
-      // Find the most up-to-date village data
-      const updatedVillage = this.villages.find(v => v.id === village.id) || village;
-      
-      this.selectionDialog = {
-        show: true,
-        slotId: object?.slot || slotId,
-        type,
-        isEmpty: !object,
-        village: updatedVillage
-      };
+    async showSelectionDialog(object, type, village, slotId) {
+      try {
+        // Fetch fresh map data
+        const data = await apiService.getMapInfo();
+        
+        // Update the villages array with fresh data
+        this.villages = data.villages.map(v => ({
+          ...v,
+          resource_fields: v.resource_fields || Array(20).fill(null)
+        }));
+        
+        // Find the most up-to-date village data
+        const updatedVillage = this.villages.find(v => v.id === village.id) || village;
+        
+        // Show the dialog with fresh data
+        this.selectionDialog = {
+          show: true,
+          slotId: object?.slot || slotId,
+          type,
+          isEmpty: !object,
+          village: updatedVillage
+        };
+      } catch (error) {
+        console.error('Error fetching fresh village data:', error);
+        this.showMessage('Failed to load village data', 'error');
+      }
     },
 
     handleUpgrade(data) {
