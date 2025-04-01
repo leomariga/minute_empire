@@ -91,9 +91,9 @@ export default {
     village: {
       immediate: true,
       handler(newVillage, oldVillage) {
-        // Only reinitialize if it's a different village or first initialization
-        if (newVillage && newVillage.resources && 
-            (!oldVillage || newVillage.id !== oldVillage.id)) {
+        // Always reinitialize if we have new village data with resources
+        if (newVillage && newVillage.resources) {
+          console.log('Village data updated, reinitializing resource amounts');
           this.initializeResourceAmounts();
         }
       }

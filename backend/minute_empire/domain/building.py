@@ -17,6 +17,45 @@ class Building:
         ConstructionType.HIDE_SPOT: {"wood": 70, "stone": 120, "iron": 60},
     }
     
+    # Base creation times in minutes
+    BASE_CREATION_TIMES = {
+        ConstructionType.CITY_CENTER: 30,
+        ConstructionType.WAREHOUSE: 20,
+        ConstructionType.GRANARY: 20,
+        ConstructionType.WALL: 15,
+        ConstructionType.RALLY_POINT: 10,
+        ConstructionType.BARRAKS: 25,
+        ConstructionType.ARCHERY: 25,
+        ConstructionType.STABLE: 30,
+        ConstructionType.HIDE_SPOT: 15,
+    }
+    
+    # Base upgrade costs
+    BASE_UPGRADE_COSTS = {
+        ConstructionType.CITY_CENTER: {"wood": 200, "stone": 240, "iron": 140},
+        ConstructionType.WAREHOUSE: {"wood": 100, "stone": 120, "iron": 70},
+        ConstructionType.GRANARY: {"wood": 80, "stone": 100, "iron": 60},
+        ConstructionType.WALL: {"wood": 50, "stone": 250, "iron": 100},
+        ConstructionType.RALLY_POINT: {"wood": 150, "stone": 70, "iron": 40},
+        ConstructionType.BARRAKS: {"wood": 180, "stone": 150, "iron": 100},
+        ConstructionType.ARCHERY: {"wood": 220, "stone": 120, "iron": 140},
+        ConstructionType.STABLE: {"wood": 200, "stone": 180, "iron": 200},
+        ConstructionType.HIDE_SPOT: {"wood": 100, "stone": 150, "iron": 80},
+    }
+    
+    # Base upgrade times in minutes
+    BASE_UPGRADE_TIMES = {
+        ConstructionType.CITY_CENTER: 30,
+        ConstructionType.WAREHOUSE: 20,
+        ConstructionType.GRANARY: 20,
+        ConstructionType.WALL: 15,
+        ConstructionType.RALLY_POINT: 10,
+        ConstructionType.BARRAKS: 25,
+        ConstructionType.ARCHERY: 25,
+        ConstructionType.STABLE: 30,
+        ConstructionType.HIDE_SPOT: 15,
+    }
+    
     # Base production bonuses for buildings
     BASE_PRODUCTION_BONUSES = {
         ConstructionType.CITY_CENTER: 0.05,  # 5% bonus per level
@@ -44,6 +83,21 @@ class Building:
         if building_type not in Building.BASE_CREATION_COSTS:
             return {}
         return Building.BASE_CREATION_COSTS[building_type].copy()
+    
+    @staticmethod
+    def get_creation_time(building_type: ConstructionType) -> int:
+        """
+        Get the time to create a new building.
+        
+        Args:
+            building_type: Type of building to create
+            
+        Returns:
+            int: Creation time in minutes
+        """
+        if building_type not in Building.BASE_CREATION_TIMES:
+            return 0
+        return Building.BASE_CREATION_TIMES[building_type]
     
     @staticmethod
     def can_create(building_type: ConstructionType, village) -> bool:
@@ -81,47 +135,23 @@ class Building:
     
     def get_upgrade_cost(self) -> Dict[str, int]:
         """Calculate upgrade cost based on building type and level"""
-        base_costs = {
-            ConstructionType.CITY_CENTER: {"wood": 200, "stone": 240, "iron": 140},
-            ConstructionType.WAREHOUSE: {"wood": 100, "stone": 120, "iron": 70},
-            ConstructionType.GRANARY: {"wood": 80, "stone": 100, "iron": 60},
-            ConstructionType.WALL: {"wood": 50, "stone": 250, "iron": 100},
-            ConstructionType.RALLY_POINT: {"wood": 150, "stone": 70, "iron": 40},
-            ConstructionType.BARRAKS: {"wood": 180, "stone": 150, "iron": 100},
-            ConstructionType.ARCHERY: {"wood": 220, "stone": 120, "iron": 140},
-            ConstructionType.STABLE: {"wood": 200, "stone": 180, "iron": 200},
-            ConstructionType.HIDE_SPOT: {"wood": 100, "stone": 150, "iron": 80},
-        }
-        
-        if self.type not in base_costs:
+        if self.type not in Building.BASE_UPGRADE_COSTS:
             return {}
             
         # Apply level multiplier
         level_multiplier = 1.5 ** self.level
         return {
             resource: int(amount * level_multiplier)
-            for resource, amount in base_costs[self.type].items()
+            for resource, amount in Building.BASE_UPGRADE_COSTS[self.type].items()
         }
     
     def get_upgrade_time(self) -> int:
         """Calculate upgrade time in minutes"""
-        base_times = {
-            ConstructionType.CITY_CENTER: 30,
-            ConstructionType.WAREHOUSE: 20,
-            ConstructionType.GRANARY: 20,
-            ConstructionType.WALL: 15,
-            ConstructionType.RALLY_POINT: 10,
-            ConstructionType.BARRAKS: 25,
-            ConstructionType.ARCHERY: 25,
-            ConstructionType.STABLE: 30,
-            ConstructionType.HIDE_SPOT: 15,
-        }
-        
-        if self.type not in base_times:
+        if self.type not in Building.BASE_UPGRADE_TIMES:
             return 0
             
         # Apply level multiplier
-        return int(base_times[self.type] * (1.2 ** self.level))
+        return int(Building.BASE_UPGRADE_TIMES[self.type] * (1.2 ** self.level))
     
     def can_upgrade(self) -> bool:
         """Check if upgrade requirements are met"""

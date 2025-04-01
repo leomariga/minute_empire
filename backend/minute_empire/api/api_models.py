@@ -104,6 +104,14 @@ class MapVillage(BaseModel):
     resource_fields: Optional[List[ResourceFieldsInfo]] = None
     city: Optional[CityInfo] = None
     construction_tasks: Optional[List[ConstructionTask]] = Field(default_factory=list, description="List of village's construction tasks")
+    base_costs: Optional[Dict[str, Dict[str, Dict[str, int]]]] = Field(
+        default=None,
+        description="Base costs for creating buildings and resource fields"
+    )
+    base_creation_times: Optional[Dict[str, Dict[str, int]]] = Field(
+        default=None,
+        description="Base creation times in minutes for buildings and resource fields"
+    )
 
 class MapInfoResponse(BaseModel):
     map_bounds: MapBounds

@@ -12,6 +12,14 @@ class ResourceProducer:
         ResourceFieldType.FOOD: {"wood": 25, "stone": 25, "iron": 15},
     }
     
+    # Base creation times in minutes
+    BASE_CREATION_TIMES = {
+        ResourceFieldType.WOOD: 15,
+        ResourceFieldType.STONE: 15,
+        ResourceFieldType.IRON: 15,
+        ResourceFieldType.FOOD: 15,
+    }
+    
     # Base production rates per hour
     BASE_PRODUCTION_RATES = {
         ResourceFieldType.WOOD: 30,
@@ -28,6 +36,14 @@ class ResourceProducer:
         ResourceFieldType.FOOD: {"wood": 80, "stone": 60, "iron": 60},
     }
     
+    # Base upgrade times in minutes
+    BASE_UPGRADE_TIMES = {
+        ResourceFieldType.WOOD: 15,
+        ResourceFieldType.STONE: 15,
+        ResourceFieldType.IRON: 15,
+        ResourceFieldType.FOOD: 15,
+    }
+    
     @staticmethod
     def get_creation_cost(field_type: ResourceFieldType) -> Dict[str, int]:
         """
@@ -42,6 +58,21 @@ class ResourceProducer:
         if field_type not in ResourceProducer.BASE_CREATION_COSTS:
             return {}
         return ResourceProducer.BASE_CREATION_COSTS[field_type].copy()
+    
+    @staticmethod
+    def get_creation_time(field_type: ResourceFieldType) -> int:
+        """
+        Get the time to create a new resource field.
+        
+        Args:
+            field_type: Type of resource field to create
+            
+        Returns:
+            int: Creation time in minutes
+        """
+        if field_type not in ResourceProducer.BASE_CREATION_TIMES:
+            return 0
+        return ResourceProducer.BASE_CREATION_TIMES[field_type]
     
     @staticmethod
     def can_create(field_type: ResourceFieldType, village) -> bool:
@@ -128,18 +159,11 @@ class ResourceProducer:
     
     def get_upgrade_time(self) -> int:
         """Calculate upgrade time in minutes"""
-        base_times = {
-            ResourceFieldType.WOOD: 15,
-            ResourceFieldType.STONE: 15,
-            ResourceFieldType.IRON: 15,
-            ResourceFieldType.FOOD: 15,
-        }
-        
-        if self.type not in base_times:
+        if self.type not in ResourceProducer.BASE_UPGRADE_TIMES:
             return 0
             
         # Apply level multiplier
-        return int(base_times[self.type] * (1.2 ** self.level))
+        return int(ResourceProducer.BASE_UPGRADE_TIMES[self.type] * (1.2 ** self.level))
     
     def can_upgrade(self) -> bool:
         """Check if upgrade requirements are met"""

@@ -113,9 +113,6 @@ export default {
       // Use current timestamp to force updates
       const _ = this.currentTimestamp;
       
-      // First log all tasks for debugging
-      console.log("ALL TASKS:", JSON.stringify(this.tasks, null, 2));
-      
       const active = this.tasks.filter(task => {
         if (!task) return false;
         
@@ -123,8 +120,7 @@ export default {
         const remainingTime = this.calculateRemainingTime(task);
         return remainingTime > 0;
       });
-      
-      console.log("ACTIVE TASKS:", active.length);
+
       return active;
     }
   },
@@ -250,10 +246,6 @@ export default {
         // Calculate difference (server - client)
         this.serverClientTimeDiff = serverTime - clientTime;
         
-        console.log(`Tasks component synced with server time:`);
-        console.log(`- Server time: ${new Date(serverTime).toISOString()}`);
-        console.log(`- Client time: ${new Date(clientTime).toISOString()}`);
-        console.log(`- Difference: ${this.serverClientTimeDiff}ms`);
       } catch (error) {
         console.error('Error syncing with server time:', error);
         this.serverClientTimeDiff = 0;
@@ -384,10 +376,6 @@ export default {
         const clientTime = serverTime - this.serverClientTimeDiff;
         const date = new Date(clientTime);
         
-        console.log(`Converting time: ${timeString}`);
-        console.log(`- Server time: ${new Date(serverTime).toISOString()}`);
-        console.log(`- Adjusted client time: ${date.toISOString()}`);
-        
         // Create a more descriptive format showing today's date or "Today"
         const now = new Date();
         let formattedDate;
@@ -434,6 +422,7 @@ export default {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
   overflow: hidden;
   font-size: 13px;
+  max-height: 180px;
 }
 
 .no-tasks-message {
@@ -457,6 +446,27 @@ table {
 thead {
   border-bottom: 1px solid rgba(0, 0, 0, 0.1);
   background-color: #f5f5f5;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+thead tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
+}
+
+tbody {
+  display: block;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+tbody tr {
+  display: table;
+  width: 100%;
+  table-layout: fixed;
 }
 
 th {
@@ -467,11 +477,13 @@ th {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  white-space: nowrap;
 }
 
 td {
   padding: 6px 12px;
   border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+  white-space: nowrap;
 }
 
 tbody tr:last-child td {

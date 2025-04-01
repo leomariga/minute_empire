@@ -27,7 +27,7 @@ class ConstructionType(str, Enum):
     BARRAKS = "barraks"
     ARCHERY = "archery"
     STABLE = "stable"
-    WAREHOUSE = "werehouse"
+    WAREHOUSE = "warehouse"
     GRANARY = "granary"
     HIDE_SPOT = "hide_spot"
     WALL = "wall"

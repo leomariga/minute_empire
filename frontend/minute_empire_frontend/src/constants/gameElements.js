@@ -13,6 +13,7 @@ import woodFieldImage from '@/assets/wood_field.png';
 import foodFieldImage from '@/assets/food_field.png';
 import stoneFieldImage from '@/assets/stone_field.png';
 import ironFieldImage from '@/assets/iron_field.png';
+import emptyFieldImage from '@/assets/empty_field.png';
 
 
 // Image mapping
@@ -22,6 +23,7 @@ export const GAME_IMAGES = {
   'food_field.png': foodFieldImage,
   'stone_field.png': stoneFieldImage,
   'iron_field.png': ironFieldImage,
+  'empty_field.png': emptyFieldImage,
 };
 
 // Building types with standardized properties
@@ -39,7 +41,7 @@ export const BUILDINGS = {
     id: 'rally_point',
     name: 'Rally Point',
     description: 'Command center for your military. Higher levels allow larger armies and more simultaneous attacks.',
-    icon: 'mdi-flag-outline',
+    icon: 'mdi-flag',
     color: '#ff5722', // Deep orange
     category: 'military',
     image: 'logo.png'
@@ -48,7 +50,7 @@ export const BUILDINGS = {
     id: 'barraks',
     name: 'Barracks',
     description: 'Train infantry units here. Higher levels unlock more powerful unit types and faster training.',
-    icon: 'mdi-shield-outline',
+    icon: 'mdi-shield',
     color: '#f44336', // Red
     category: 'military',
     image: 'logo.png'
@@ -66,7 +68,7 @@ export const BUILDINGS = {
     id: 'stable',
     name: 'Stable',
     description: 'Train cavalry units here. Higher levels unlock more powerful mounted units and faster training.',
-    icon: 'mdi-horse',
+    icon: 'mdi-horse-variant',
     color: '#8d6e63', // Brown
     category: 'military',
     image: 'logo.png'
@@ -84,7 +86,7 @@ export const BUILDINGS = {
     id: 'granary',
     name: 'Granary',
     description: 'Store food safely. Higher levels significantly increase the food storage capacity of your village.',
-    icon: 'mdi-food-apple',
+    icon: 'mdi-hoop-house',
     color: '#8bc34a', // Light green
     category: 'economy',
     image: 'logo.png'
@@ -386,8 +388,9 @@ export function getBuildingIcon(buildingId) {
 
 // Get resource field image path
 export function getResourceFieldImage(fieldId) {
+  if (!fieldId) return 'empty_field.png';
   const field = getResourceFieldInfo(fieldId);
-  return field ? field.image : 'logo.png';
+  return field ? field.image : 'empty_field.png';
 }
 
 // Get building image path
@@ -398,9 +401,10 @@ export function getBuildingImage(buildingId) {
 
 // Get resource field image reference
 export function getResourceFieldImageRef(fieldId) {
+  if (!fieldId) return GAME_IMAGES['empty_field.png'];
   const field = getResourceFieldInfo(fieldId);
-  const imageName = field ? field.image : 'logo.png';
-  return GAME_IMAGES[imageName] || GAME_IMAGES['logo.png'];
+  const imageName = field ? field.image : 'empty_field.png';
+  return GAME_IMAGES[imageName] || GAME_IMAGES['empty_field.png'];
 }
 
 // Get building image reference

@@ -25,6 +25,9 @@ from minute_empire.api.api_models import (
     CityInfo,
     ConstructionInfo
 )
+from minute_empire.domain.world import World
+from minute_empire.domain.building import Building
+from minute_empire.domain.resource_field import ResourceProducer
 
 app = FastAPI(
     title="Minute Empire API",
@@ -259,7 +262,6 @@ async def execute_command(
 @app.get("/map/info", response_model=MapInfoResponse)
 async def get_map_info(current_user: dict = Depends(get_current_user)):
     """Get map information including bounds and all villages."""
-    from minute_empire.domain.world import World
     from minute_empire.repositories.village_repository import VillageRepository
     from minute_empire.services.resource_service import ResourceService
     from datetime import datetime
@@ -331,6 +333,18 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                                     capacity=capacity
                                 )
                             village_data.resources = resources_info
+                            
+                            # Add base costs and creation times
+                            village_data.base_costs = {
+                                "buildings": Building.BASE_CREATION_COSTS,
+                                "fields": ResourceProducer.BASE_CREATION_COSTS
+                            }
+                            
+                            # Base creation times (in minutes)
+                            village_data.base_creation_times = {
+                                "buildings": Building.BASE_CREATION_TIMES,
+                                "fields": ResourceProducer.BASE_CREATION_TIMES
+                            }
                             
                             # Get resource fields information
                             if hasattr(updated_village._data, 'resource_fields'):

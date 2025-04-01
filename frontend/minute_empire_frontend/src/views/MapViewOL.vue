@@ -48,6 +48,24 @@
       @task-completed="handleTaskCompleted"
     />
 
+    <!-- Error Snackbar -->
+    <v-snackbar
+      v-model="snackbar.show"
+      :color="snackbar.color"
+      :timeout="snackbar.timeout"
+      position="top"
+    >
+      {{ snackbar.text }}
+      <template v-slot:actions>
+        <v-btn
+          variant="text"
+          @click="snackbar.show = false"
+        >
+          Close
+        </v-btn>
+      </template>
+    </v-snackbar>
+
     <!-- Hover Dialog -->
     <map-hover-dialog
       :show="hoverDialog.show"
@@ -66,8 +84,11 @@
       :slot-id="selectionDialog.slotId"
       :type="selectionDialog.type"
       :is-empty="selectionDialog.isEmpty"
+      :is-owned="selectionDialog.village ? selectionDialog.village.is_owned : false"
       :village="selectionDialog.village"
+      :map-data="mapData"
       @upgrade="handleUpgrade"
+      @create="handleCreate"
     >
       <template #additional-info>
         <!-- Future expansion slot for additional information -->
@@ -91,10 +112,10 @@ import { Point, Polygon } from 'ol/geom';
 import { Style, Fill, Stroke, Text, Circle, Icon } from 'ol/style';
 import { defaults as defaultControls } from 'ol/control';
 import MapHoverDialog from '@/components/MapHoverDialog.vue'
-import MapSelectionDialog from '@/components/MapSelectionDialog.vue'
+import MapSelectionDialog from '@/components/selection_dialogs/MapSelectionDialog.vue'
 import VillageResourcesDisplay from '@/components/VillageResourcesDisplay.vue'
 import ConstructionTasksDisplay from '@/components/ConstructionTasksDisplay.vue'
-import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon } from '@/constants/gameElements';
+import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon, getResourceInfo, getBuildingInfo, TASK_TYPES } from '@/constants/gameElements';
 
 // Set up geographic coordinates
 useGeographic();
@@ -143,10 +164,15 @@ export default {
         data: null,
         type: null
       },
+      snackbar: {
+        show: false,
+        text: '',
+        color: 'error',
+        timeout: 3000
+      },
       pointerMoveTimeout: null,
       lastPointerPosition: null,
       lastVillageCheck: null,
-      cachedVillagePositions: {},
       styleCache: {},
       lastZoomLevel: null,
       lastUpdateTime: 0,
@@ -163,7 +189,8 @@ export default {
       focusCheckTimer: null,
       villageRefreshTimer: null,
       lastVillageRefresh: 0,
-      taskCompletionTimer: null
+      taskCompletionTimer: null,
+      iconCache: {}
     };
   },
   
@@ -258,6 +285,11 @@ export default {
             const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
             if (updatedVillage) {
               this.focusedVillage = updatedVillage;
+              
+              // Also update the selection dialog if it's open and related to this village
+              if (this.selectionDialog.show && this.selectionDialog.village && this.selectionDialog.village.id === updatedVillage.id) {
+                this.selectionDialog.village = updatedVillage;
+              }
             }
             
             this.lastVillageRefresh = now;
@@ -317,6 +349,17 @@ export default {
           console.log(`Focus changed to village: ${closestVillage.name}`);
           this.focusedVillage = closestVillage;
           
+          // Log construction tasks for debugging
+          if (this.focusedVillage.construction_tasks && this.focusedVillage.construction_tasks.length > 0) {
+            console.log('Construction tasks found:', this.focusedVillage.construction_tasks);
+            // Log first task's full object to see all properties
+            console.log('First task details:', this.focusedVillage.construction_tasks[0]);
+            // Log all property names in the first task
+            console.log('First task property names:', Object.keys(this.focusedVillage.construction_tasks[0]));
+          } else {
+            console.log('No construction tasks for this village');
+          }
+          
           // Since village focus changed, update last refresh time
           this.lastVillageRefresh = Date.now();
         }
@@ -349,9 +392,6 @@ export default {
           villages: this.villages.length,
           sampleVillage: this.villages[0] // Log first village for debugging
         });
-        
-        // Center the map
-        this.resetView();
         
         return data; // Return the data to allow promise chaining
       } catch (error) {
@@ -605,12 +645,27 @@ export default {
           subgridFeature.setStyle(baseStyle);
           this.subgridLayer.getSource().addFeature(subgridFeature);
           
+          // Check for creation task on empty slots
+          const creationTask = this.focusedVillage && 
+            this.focusedVillage.construction_tasks && 
+            slotNumber !== null &&
+            this.focusedVillage.construction_tasks.find(task => 
+              task.task_type === 'create_field' && 
+              Number(task.slot) === slotNumber);
+              
           // Only show resource details at higher zoom levels
-          if (resourceField && zoom > 3) {
+          if (zoom > 3 && (resourceField || creationTask)) {
             const detailOpacity = Math.min(1, (zoom - 3) / 2); // Fade in between zoom 3-5
             
+            // If there's a resource field, use it; otherwise create a dummy one for creation task
+            const fieldToDisplay = resourceField || {
+              slot: slotNumber,
+              level: 0,
+              type: creationTask ? creationTask.target_type : 'unknown'
+            };
+            
             // Create a more professional visual style for resource fields
-            const resourceStyle = this.createResourceFieldStyle(resourceField, x + sx * 0.2, y + sy * 0.2, detailOpacity);
+            const resourceStyle = this.createResourceFieldStyle(fieldToDisplay, x + sx * 0.2, y + sy * 0.2, detailOpacity);
             
             // Add resource field details as separate features
             const resourceFeature = new Feature({
@@ -619,55 +674,195 @@ export default {
                 y + sy * 0.2 + 0.1
               ]),
               type: 'resource_field',
-              resource: resourceField
+              resource: fieldToDisplay
             });
             
-            resourceFeature.setStyle(resourceStyle);
-            this.subgridLayer.getSource().addFeature(resourceFeature);
+            if (resourceStyle) {
+              resourceFeature.setStyle(resourceStyle);
+              this.subgridLayer.getSource().addFeature(resourceFeature);
+            }
           }
         }
       }
     },
     
-    createResourceFieldStyle(resourceField, x, y, opacity) {
-      const cacheKey = `resource_${resourceField.type}_${resourceField.level}_${opacity}`;
-      if (this.styleCache[cacheKey] !== undefined) {
-        return this.styleCache[cacheKey];
+    createIconDataURL(iconName, size = 24, color = '#ffffff') {
+      // Create a unique cache key based on icon, size and color
+      const cacheKey = `${iconName}_${size}_${color}`;
+      
+      // Return from cache if exists
+      if (this.iconCache[cacheKey]) {
+        return this.iconCache[cacheKey];
       }
+      
+      // Create canvas element
+      const canvas = document.createElement('canvas');
+      const padding = 4; // Padding around the icon
+      canvas.width = size + padding * 2;
+      canvas.height = size + padding * 2;
+      const ctx = canvas.getContext('2d');
+      
+      // Set up temporary div to measure icon dimensions
+      const tempDiv = document.createElement('div');
+      tempDiv.style.position = 'absolute';
+      tempDiv.style.visibility = 'hidden';
+      tempDiv.style.fontSize = `${size}px`;
+      
+      // Create icon element
+      const iconElement = document.createElement('i');
+      iconElement.className = `mdi ${iconName}`;
+      iconElement.style.color = color;
+      iconElement.style.fontSize = `${size}px`;
+      
+      // Add to DOM temporarily to get measurements
+      tempDiv.appendChild(iconElement);
+      document.body.appendChild(tempDiv);
+      
+      // Get material design icon content
+      const iconStyle = window.getComputedStyle(iconElement, ':before');
+      const iconContent = iconStyle.getPropertyValue('content').replace(/"/g, '');
+      const iconFont = iconStyle.getPropertyValue('font-family');
+      
+      // Set up canvas context
+      ctx.font = `${size}px ${iconFont}`;
+      ctx.fillStyle = color;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      
+      // Draw icon on canvas
+      ctx.fillText(iconContent, canvas.width / 2, canvas.height / 2);
+      
+      // Clean up
+      document.body.removeChild(tempDiv);
+      
+      // Convert canvas to data URL
+      const dataURL = canvas.toDataURL('image/png');
+      
+      // Cache the result
+      this.iconCache[cacheKey] = dataURL;
+      
+      return dataURL;
+    },
+    
+    createResourceFieldStyle(resourceField, x, y, opacity) {
 
-      const baseSize = 5;
+
+      const baseSize = 11;
       const level = resourceField.level;
       const zoom = this.map.getView().getZoom();
 
       if (zoom > 9) {
-        const style = new Style({
-          image: new Circle({
-            radius: baseSize * (1 + level),
-            fill: new Fill({
-              color: this.getResourceColor(resourceField.type, 0.8)
-            }),
-            stroke: new Stroke({
-              color: 'rgba(0, 0, 0, 0.5)',
-              width: 2
+        // Check for field upgrades - ensure we're comparing numbers
+        const upgradeTask = this.focusedVillage && 
+          this.focusedVillage.construction_tasks && 
+          this.focusedVillage.construction_tasks.find(task => 
+            task.task_type === 'upgrade_field' && 
+            Number(task.slot) === Number(resourceField.slot));
+            
+        // Check for field creation - ensure we're comparing numbers
+        const creationTask = this.focusedVillage && 
+          this.focusedVillage.construction_tasks && 
+          this.focusedVillage.construction_tasks.find(task => 
+            task.task_type === 'create_field' && 
+            Number(task.slot) === Number(resourceField.slot));
+            
+        const cacheKey = `resource_${resourceField.type}_${resourceField.level}_${opacity}_${upgradeTask ? 'upgrade' : creationTask ? 'create' : 'normal'}`;
+        if (this.styleCache[cacheKey] !== undefined) {
+          return this.styleCache[cacheKey];
+        }
+        // Get resource icon name and colors
+        const iconName = getResourceIcon(resourceField.type);
+        const circleColor = this.getResourceColor(resourceField.type, 0.8);
+        
+
+        
+        let displayIconName;
+        let iconColor;
+        
+        if (upgradeTask) {
+          // For upgrades: use green up arrow
+          displayIconName = 'mdi-arrow-up-bold';
+          iconColor = 'rgba(0, 0, 0, 0.3)'; // Green for upgrades
+        } else if (creationTask) {
+          // For creation: use shovel/hammer icon from TASK_TYPES
+          displayIconName = TASK_TYPES.CREATE_FIELD.icon;
+          iconColor = 'rgba(0, 0, 0, 0.3)';
+        } else {
+          // Normal resource icon
+          displayIconName = iconName;
+          iconColor = 'rgba(0, 0, 0, 0.3)';
+        }
+        
+        // Larger icon size for better visibility of task icons
+        const iconSize = (upgradeTask || creationTask) ? 32 : Math.min(12 + level * 2, 28);
+        
+        // Debug log
+        if (upgradeTask || creationTask) {
+          console.log(`Found ${upgradeTask ? 'upgrading' : 'creating'} field at slot ${resourceField.slot}`);
+        }
+        
+        try {
+          // Create icon data URL
+          const iconDataURL = this.createIconDataURL(displayIconName, iconSize, iconColor);
+          
+          // Create style with both circle and icon
+          const style = new Style({
+            image: new Circle({
+              radius: (upgradeTask || creationTask) ? baseSize * 2 : (baseSize + level*2),
+              fill: new Fill({
+                color: circleColor
+              })
+              // DO NOT REMOVE
+              // stroke: new Stroke({
+              //   color: (upgradeTask || creationTask) ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+              //   width: (upgradeTask || creationTask) ? 0 : 0
+              // })
             })
-          })
-        });
-
-        style.setText(new Text({
-          text: level.toString(),
-          fill: new Fill({
-            color: 'rgba(255, 255, 255, 0.9)'
-          }),
-          stroke: new Stroke({
-            color: 'rgba(0, 0, 0, 0.8)',
-            width: 1
-          }),
-          scale: [2, 2],
-          offsetY: 0
-        }));
-
-        this.styleCache[cacheKey] = style;
-        return style;
+          });
+          
+          // Add icon on top of circle
+          const iconStyle = new Style({
+            image: new Icon({
+              src: iconDataURL,
+              scale: 1,
+              opacity: 1
+            })
+          });
+          
+          this.styleCache[cacheKey] = [style, iconStyle];
+          return [style, iconStyle];
+        } catch (error) {
+          console.error('Error creating resource field style:', error);
+          
+          // Fallback to text style if icon creation fails
+          const style = new Style({
+            image: new Circle({
+              radius: baseSize * 1.5,
+              fill: new Fill({
+                color: circleColor
+              }),
+              stroke: new Stroke({
+                color: (upgradeTask || creationTask) ? 'rgba(76, 175, 80, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+                width: 2
+              })
+            }),
+            text: new Text({
+              text: resourceField.level.toString(),
+              fill: new Fill({
+                color: 'rgba(255, 255, 255, 0.9)'
+              }),
+              stroke: new Stroke({
+                color: 'rgba(0, 0, 0, 0.8)',
+                width: 1
+              }),
+              scale: [2, 2],
+              offsetY: 0
+            })
+          });
+          
+          this.styleCache[cacheKey] = style;
+          return style;
+        }
       }
       return null;
     },
@@ -782,25 +977,41 @@ export default {
           
           this.cityLayer.getSource().addFeature(cityFeature);
 
-          // Add building details if there's a construction in this slot
-          if (village.city && village.city.constructions) {
-            const slot = this.getCitySlotFromPosition(cx, cy);
-            const construction = village.city.constructions.find(c => c.slot === slot);
+          // Get the slot number for this position
+          const slot = this.getCitySlotFromPosition(cx, cy);
+          
+          // Check for construction in this slot
+          const construction = village.city?.constructions?.find(c => c.slot === slot);
+          
+          // Check for building creation task on empty slots
+          const creationTask = this.focusedVillage && 
+            this.focusedVillage.construction_tasks && 
+            slot !== null &&
+            this.focusedVillage.construction_tasks.find(task => 
+              task.task_type === 'create_building' && 
+              Number(task.slot) === slot);
+
+          // Add building details if there's a construction or creation task
+          if (slot !== null && (construction || creationTask)) {
+            // If there's a building, use it; otherwise create a dummy one for creation task
+            const buildingToDisplay = construction || {
+              slot: slot,
+              level: 0,
+              type: creationTask ? creationTask.target_type : 'unknown'
+            };
             
-            if (construction) {
-              const buildingStyle = this.createBuildingStyle(construction, x + cx * 0.04, y + cy * 0.04, cityOpacity);
-              if (buildingStyle) {
-                const buildingFeature = new Feature({
-                  geometry: new Point([
-                    x + cx * 0.04 + 0.02,
-                    y + cy * 0.04 + 0.02
-                  ]),
-                  type: 'building',
-                  building: construction
-                });
-                buildingFeature.setStyle(buildingStyle);
-                this.cityLayer.getSource().addFeature(buildingFeature);
-              }
+            const buildingStyle = this.createBuildingStyle(buildingToDisplay, x + cx * 0.04, y + cy * 0.04, cityOpacity);
+            if (buildingStyle) {
+              const buildingFeature = new Feature({
+                geometry: new Point([
+                  x + cx * 0.04 + 0.02,
+                  y + cy * 0.04 + 0.02
+                ]),
+                type: 'building',
+                building: buildingToDisplay
+              });
+              buildingFeature.setStyle(buildingStyle);
+              this.cityLayer.getSource().addFeature(buildingFeature);
             }
           }
         }
@@ -883,18 +1094,11 @@ export default {
     },
     
     findVillageAtPosition(gridX, gridY) {
-      const key = `${Math.floor(gridX)},${Math.floor(gridY)}`;
-      if (this.cachedVillagePositions[key] !== undefined) {
-        return this.cachedVillagePositions[key];
-      }
-
-      const village = this.villages.find(v => 
+      // Always search in the current villages data to get most up-to-date results
+      return this.villages.find(v => 
         Math.floor(gridX) === v.location.x && 
         Math.floor(gridY) === v.location.y
       );
-
-      this.cachedVillagePositions[key] = village;
-      return village;
     },
 
     calculatePositions(gridX, gridY, village) {
@@ -1003,9 +1207,8 @@ export default {
           const citySlot = this.getCitySlotFromPosition(city.x, city.y);
           const construction = village.city?.constructions?.find(c => c && c.slot === citySlot);
           
-          // Only show building dialog if we clicked on an actual building 
-          // AND we're zoomed in enough to see buildings
-          if (construction && zoom > 10) {
+          // Show building dialog if we're zoomed in enough and clicked on a valid building slot
+          if (zoom > 10 && citySlot !== null) {
             this.showSelectionDialog(construction, 'building', village, citySlot);
           } else if (slot !== null) {
             // Otherwise show resource field dialog (either existing or empty)
@@ -1077,43 +1280,123 @@ export default {
     },
 
     createBuildingStyle(building, x, y, opacity) {
-      const cacheKey = `building_${building.type}_${building.level}_${opacity}`;
-      if (this.styleCache[cacheKey] !== undefined) {
-        return this.styleCache[cacheKey];
-      }
-
-      const baseSize = 5;
+      const baseSize = 11;
       const zoom = this.map.getView().getZoom();
 
       if (zoom > 11) {
-        const style = new Style({
-          image: new Circle({
-            radius: baseSize * 1.5,
-            fill: new Fill({
-              color: this.getBuildingColor(building.type, 0.8)
-            }),
-            stroke: new Stroke({
-              color: 'rgba(0, 0, 0, 0.5)',
-              width: 2
+        // Check for building upgrades
+        const upgradeTask = this.focusedVillage && 
+          this.focusedVillage.construction_tasks && 
+          this.focusedVillage.construction_tasks.find(task => 
+            task.task_type === 'upgrade_building' && 
+            Number(task.slot) === Number(building.slot));
+            
+        // Check for building creation
+        const creationTask = this.focusedVillage && 
+          this.focusedVillage.construction_tasks && 
+          this.focusedVillage.construction_tasks.find(task => 
+            task.task_type === 'create_building' && 
+            Number(task.slot) === Number(building.slot));
+            
+        const cacheKey = `building_${building.type}_${building.level}_${opacity}_${upgradeTask ? 'upgrade' : creationTask ? 'create' : 'normal'}`;
+        if (this.styleCache[cacheKey] !== undefined) {
+          return this.styleCache[cacheKey];
+        }
+
+        // Get building icon name and colors
+        const iconName = getBuildingIcon(building.type);
+        const circleColor = this.getBuildingColor(building.type, 0.6);
+        
+        let displayIconName;
+        let iconColor;
+        
+        if (upgradeTask) {
+          // For upgrades: use green up arrow
+          displayIconName = 'mdi-arrow-up-bold';
+          iconColor = 'rgba(0, 0, 0, 0.3)'; // Green for upgrades
+        } else if (creationTask) {
+          // For creation: use hammer icon from TASK_TYPES
+          displayIconName = TASK_TYPES.CREATE_BUILDING.icon;
+          
+          // Use the color of the building type being created
+          const buildingInfo = getBuildingInfo(building.type);
+          iconColor = buildingInfo ? buildingInfo.color : 'rgba(0, 0, 0, 0.3)'; // Blue as fallback
+        } else {
+          // Normal building icon
+          displayIconName = iconName;
+          iconColor = 'rgba(0, 0, 0, 0.6)';
+        }
+        
+        // Larger icon size for better visibility
+        const iconSize = (upgradeTask || creationTask) ? 32 : Math.min(14 + building.level, 24);
+        
+        // Debug log
+        if (upgradeTask || creationTask) {
+          console.log(`Found ${upgradeTask ? 'upgrading' : 'creating'} building at slot ${building.slot}`);
+        }
+        
+        try {
+          // Create icon data URL
+          const iconDataURL = this.createIconDataURL(displayIconName, iconSize, iconColor);
+          
+          // Create style with both circle and icon
+          const style = new Style({
+            image: new Circle({
+              radius: (upgradeTask || creationTask) ? baseSize * 2 : (baseSize + building.level*2),
+              fill: new Fill({
+                color: circleColor
+              }),
+              // DO NOT REMOVE
+              // stroke: new Stroke({
+              //   color: (upgradeTask || creationTask) ? 'rgba(76, 175, 80, 0.9)' : 'rgba(0, 0, 0, 0.5)',
+              //   width: (upgradeTask || creationTask) ? 3 : 2
+              // })
             })
-          })
-        });
-
-        style.setText(new Text({
-          text: building.level.toString(),
-          fill: new Fill({
-            color: 'rgba(255, 255, 255, 0.9)'
-          }),
-          stroke: new Stroke({
-            color: 'rgba(0, 0, 0, 0.8)',
-            width: 1
-          }),
-          scale: [2, 2],
-          offsetY: 0
-        }));
-
-        this.styleCache[cacheKey] = style;
-        return style;
+          });
+          
+          // Add icon on top of circle
+          const iconStyle = new Style({
+            image: new Icon({
+              src: iconDataURL,
+              scale: 1,
+              opacity: 1
+            })
+          });
+          
+          this.styleCache[cacheKey] = [style, iconStyle];
+          return [style, iconStyle];
+        } catch (error) {
+          console.error('Error creating building style:', error);
+          
+          // Fallback to text style if icon creation fails
+          const style = new Style({
+            image: new Circle({
+              radius: baseSize * 1.5,
+              fill: new Fill({
+                color: circleColor
+              }),
+              stroke: new Stroke({
+                color: (upgradeTask || creationTask) ? 'rgba(76, 175, 80, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+                width: 2
+              })
+            }),
+            text: new Text({
+              text: building.level.toString(),
+              fill: new Fill({
+                color: 'rgba(255, 255, 255, 0.9)'
+              }),
+              stroke: new Stroke({
+                color: 'rgba(0, 0, 0, 0.8)',
+                width: 1
+              }),
+              scale: [2, 2],
+              offsetY: 0
+            })
+          });
+          
+          this.styleCache[cacheKey] = style;
+          return style;
+        }
       }
       return null;
     },
@@ -1159,52 +1442,100 @@ export default {
       };
     },
 
-    handleUpgrade({ type, slot, currentLevel }) {
-      // Find the current village based on the last clicked position
-      const coords = this.map.getEventCoordinate(this.lastClickEvent);
-      const gridX = Math.round(coords[0] * 100) / 100;
-      const gridY = Math.round(coords[1] * 100) / 100;
+    handleUpgrade(data) {
+      this.handleConstructionAction(data, 'upgrade');
+    },
+    
+    handleCreate(data) {
+      this.handleConstructionAction(data, 'create');
+    },
+    
+    handleConstructionAction(data, actionType) {
+      // Use the focused village
+      if (!this.focusedVillage) {
+        console.error('No focused village available for construction action');
+        this.showMessage('No village selected', 'error');
+        return;
+      }
       
-      const village = this.findVillageAtPosition(gridX, gridY);
-      
-      if (!village || !village.is_owned) {
-        console.error('No owned village found at position');
+      // Make sure the village is owned by the player
+      if (!this.focusedVillage.is_owned) {
+        console.error('Cannot perform action on village not owned by player');
+        this.showMessage('You do not own this village', 'error');
         return;
       }
 
-      // Format the command based on type
-      // Convert 'resource' to 'field' for the command
-      const commandType = type === 'resource' ? 'field' : type;
-      const command = `upgrade ${commandType} in ${slot}`;
+      // Format the command based on action type and element type
+      let command;
+      const { type, item_category, slot, buildingType } = data;
+      
+      if (actionType === 'upgrade') {
+        // Use item_category to determine if it's a field or building
+        if (item_category === 'resource') {
+          command = `upgrade field in ${slot}`;
+        } else {
+          command = `upgrade building in ${slot}`;
+        }
+      } else if (actionType === 'create') {
+        if (type === 'resource') {
+          command = `create ${buildingType} field in ${slot}`;
+        } else {
+          command = `create ${buildingType} building in ${slot}`;
+        }
+      }
       
       // Execute the command
-      apiService.executeCommand(village.id, command)
+      apiService.executeCommand(this.focusedVillage.id, command)
         .then(response => {
-          console.log('Upgrade command executed:', response);
+          // Check if the command was successful
+          if (response && response.success === false) {
+            const errorMessage = response.message || `Failed to ${actionType}: ${command}`;
+            this.showMessage(errorMessage, 'error');
+            return;
+          }
           
-          // Wait 1 second before fetching fresh data to ensure the server has registered the task
-          setTimeout(() => {
-            // Refresh map data to show updated state
-            this.fetchMapData().then(() => {
-              // After fresh data is loaded, if the dialog is still open, update it with fresh data
-              if (this.selectionDialog.show && this.selectionDialog.slotId === slot && this.selectionDialog.type === type) {
-                const freshVillage = this.villages.find(v => v.id === village.id);
-                if (freshVillage) {
-                  this.selectionDialog.village = freshVillage;
-                }
-              }
-            });
+          // Show success message
+          this.showMessage(`${actionType === 'upgrade' ? 'Upgrading' : 'Creating'} started!`, 'success');
+          
+          // Make sure the dialog is closed
+          this.selectionDialog.show = false;
+          
+          // Immediately fetch fresh data and update the focused village
+          this.fetchMapData().then(data => {
+            // Update the villages array with fresh data
+            this.villages = data.villages.map(village => ({
+              ...village,
+              resource_fields: village.resource_fields || Array(20).fill(null)
+            }));
             
-            // If we have a focused village, force-refresh it too
-            if (this.focusedVillage && this.focusedVillage.id === village.id) {
-              this.refreshFocusedVillage(true);
+            // Update the focused village with fresh data
+            const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
+            if (updatedVillage) {
+              // Create a new object to ensure Vue reactivity
+              this.focusedVillage = {
+                ...updatedVillage,
+                resources: updatedVillage.resources || this.focusedVillage.resources // Preserve resources if not in update
+              };
             }
-          }, 1000);
+            
+            // Update last refresh time
+            this.lastVillageRefresh = Date.now();
+          });
+          
         })
         .catch(error => {
-          console.error('Failed to execute upgrade command:', error);
-          // You might want to show an error message to the user here
+          console.error(`Failed to execute ${actionType} command:`, error);
+          this.showMessage(`Error: ${error.message || 'Failed to execute command'}`, 'error');
         });
+    },
+
+    showMessage(text, color = 'info') {
+      this.snackbar = {
+        show: true,
+        text,
+        color,
+        timeout: color === 'error' ? 5000 : 3000  // Show errors longer
+      };
     },
 
     handleTaskCompleted(task) {
