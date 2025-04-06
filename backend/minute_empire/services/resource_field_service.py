@@ -41,7 +41,8 @@ class ResourceFieldService:
                 "slot": field.slot,
                 "production_rate": production_rate,
                 "upgrade_cost": field.get_upgrade_cost(),
-                "upgrade_time": field.get_upgrade_time()
+                "upgrade_time": field.get_upgrade_time(),
+                "population": field.getPopulation()
             })
             
         return result

@@ -11,6 +11,7 @@ class Village:
     # Class constants from core.village
     MAX_FIELDS = 20
     MAX_CONSTRUCTIONS = 25
+    FOOD_CONSUMPTION_PER_PERSON = 10  # Each person consumes 10 food per hour
     
     def __init__(self, village_data: VillageInDB):
         self._data = village_data
@@ -134,10 +135,10 @@ class Village:
     def get_resource_rates(self) -> Dict[str, float]:
         """Calculate hourly production rates for all resources"""
         rates = {
-            "wood": 9999,
-            "stone": 9999, 
-            "iron": 9999,
-            "food": 9999
+            "wood": 100,
+            "stone": 100, 
+            "iron": 100,
+            "food": 100
         }
         
         # Check if resource fields exist and are initialized
@@ -166,6 +167,12 @@ class Village:
             # If any error occurs during calculation, use the defaults
             pass
             
+        # Subtract population consumption from the rates
+        consumption = self.getPopulationConsumption()
+        for resource_type, consume_rate in consumption.items():
+            if resource_type in rates:
+                rates[resource_type] -= consume_rate
+                
         return rates
     
     def update_resources(self, time_elapsed_hours: float) -> None:
@@ -190,20 +197,20 @@ class Village:
     
     def calculate_storage_capacity(self, resource_type: str) -> int:
         """Calculate storage capacity based on warehouse/granary levels"""
-        base_capacity = 1000
+        base_capacity = 300
         
         if resource_type == "food":
             # Find granary
             granary = next((b for b in self.get_all_buildings()
                           if b.type == ConstructionType.GRANARY), None)
             if granary:
-                return base_capacity * (1 + 0.3 * granary.level)
+                return base_capacity * (1.64**granary.level)
         else:
             # Find warehouse for other resources
             warehouse = next((b for b in self.get_all_buildings()
                             if b.type == ConstructionType.WAREHOUSE), None)
             if warehouse:
-                return base_capacity * (1 + 0.3 * warehouse.level)
+                return base_capacity * (1.64*warehouse.level)
                 
         return base_capacity
     
@@ -402,6 +409,9 @@ class Village:
         # Get production rates (now safely handled within the method)
         production_rates = self.get_resource_rates()
         
+        # Get population consumption
+        population_consumption = self.getPopulationConsumption()
+        
         # Safely get building and resource field counts
         building_count = 0
         resource_fields_count = 0
@@ -456,6 +466,10 @@ class Village:
                         "time_remaining_seconds": max(0, (task.completion_time - now).total_seconds())
                     })
             
+        # Calculate population metrics
+        total_population = self.getTotalPopulation()
+        working_population = self.getWorkingPopulation()
+            
         # Basic village info with safe resource access
         return {
             "id": self.id,
@@ -474,10 +488,82 @@ class Village:
             "building_count": building_count,
             "resource_fields_count": resource_fields_count,
             "construction_tasks": pending_tasks,
+            "total_population": total_population,
+            "working_population": working_population,
             "res_update_at": self.res_update_at,
             "created_at": self.created_at,
             "updated_at": self.updated_at
         }
+    
+    def getTotalPopulation(self) -> int:
+        """
+        Calculate the total population of the village by summing the population
+        of all buildings and resource fields.
+        
+        Returns:
+            int: The total population of the village
+        """
+        total_population = 0
+        
+        # Sum population from all buildings
+        for building in self.get_all_buildings():
+            total_population += building.getPopulation()
+            
+        # Sum population from all resource fields
+        for field in self.get_all_resource_fields():
+            total_population += field.getPopulation()
+            
+        return total_population
+    
+    def getWorkingPopulation(self) -> int:
+        """
+        Calculate the working population of the village by summing the target level squared
+        of buildings and resource fields that are being upgraded in construction tasks,
+        and also including level 1 for creation tasks.
+        
+        Returns:
+            int: The working population of the village
+        """
+        working_population = 0
+        
+        # Check if there are any construction tasks
+        if not hasattr(self._data, 'construction_tasks'):
+            return working_population
+            
+        # Sum target levels from all pending tasks
+        for task in self._data.construction_tasks:
+            if not task.processed:
+                if task.task_type in [TaskType.UPGRADE_BUILDING, TaskType.UPGRADE_FIELD]:
+                    # For upgrade tasks, use the target level
+                    working_population += round(task.level**2)
+                elif task.task_type in [TaskType.CREATE_BUILDING, TaskType.CREATE_FIELD]:
+                    # For creation tasks, use level 1
+                    working_population += 1
+                
+        return working_population
+    
+    def getPopulationConsumption(self) -> Dict[str, float]:
+        """
+        Calculate the resource consumption rate of the village's population.
+        Currently, only food is consumed by the population.
+        
+        Returns:
+            Dict[str, float]: Dictionary with resource consumption rates per hour
+        """
+        consumption = {
+            "wood": 0,
+            "stone": 0,
+            "iron": 0,
+            "food": 0
+        }
+        
+        # Calculate total population
+        total_population = self.getTotalPopulation()
+        
+        # Each person consumes FOOD_CONSUMPTION_PER_PERSON food per hour
+        consumption["food"] = total_population * self.FOOD_CONSUMPTION_PER_PERSON
+        
+        return consumption
     
     def __str__(self) -> str:
         return f"Village: {self.name} at {self.location}"

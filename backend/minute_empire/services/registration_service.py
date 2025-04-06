@@ -65,10 +65,10 @@ class RegistrationService:
             "owner_id": owner_id,
             "resource_fields": [field.dict() for field in initial_fields],
             "resources": {
-                "wood": 0,
-                "stone": 0,
-                "iron": 0,
-                "food": 0
+                "wood": 1000,
+                "stone": 1000,
+                "iron": 1000,
+                "food": 1000
             },
             "city": initial_city.dict(),
             "res_update_at": now,

@@ -1,32 +1,50 @@
 <template>
-  <div v-if="resources" class="resources-arc">
-    <div class="resource-bar">
-      <div
-        v-for="resource in resourcesArray"
-        :key="resource.name"
-        class="resource-section"
-      >
-        <div class="resource-content">
-          <div 
-            class="resource-icon" 
-            :style="{ background: getResourceIconBackground(resource.name) }"
-          >
-            <v-icon size="26" :color="getResourceColor(resource.name)">{{ getResourceIcon(resource.name) }}</v-icon>
-          </div>
-          <div class="resource-details">
-            <div class="resource-amount">
-              <span class="amount-value">{{ resource.amount.toFixed(0) }}</span>
-              <span class="capacity-value hide-on-mobile">/{{ getCapacity(resource.name).toFixed(0) }}</span>
+  <div v-if="resources" class="resources-container">
+    <div class="resources-arc">
+      <div class="resource-bar">
+        <div
+          v-for="resource in resourcesArray"
+          :key="resource.name"
+          class="resource-section"
+        >
+          <div class="resource-content">
+            <div 
+              class="resource-icon" 
+              :style="{ background: getResourceIconBackground(resource.name) }"
+            >
+              <v-icon size="26" :color="getResourceColor(resource.name)">{{ getResourceIcon(resource.name) }}</v-icon>
             </div>
-            <div class="capacity-bar">
-              <div class="capacity-fill" :style="{
-                width: `${Math.min(100, (resource.amount / getCapacity(resource.name)) * 100)}%`,
-                backgroundColor: getResourceColor(resource.name, 0.7)
-              }"></div>
+            <div class="resource-details">
+              <div class="resource-amount">
+                <span class="amount-value">{{ resource.amount.toFixed(0) }}</span>
+                <span class="capacity-value hide-on-mobile">/{{ getCapacity(resource.name).toFixed(0) }}</span>
+              </div>
+              <div class="capacity-bar">
+                <div class="capacity-fill" :style="{
+                  width: `${Math.min(100, (resource.amount / getCapacity(resource.name)) * 100)}%`,
+                  backgroundColor: getResourceColor(resource.name, 0.7)
+                }"></div>
+              </div>
+              <div class="resource-rate">+{{ resource.rate.toFixed(1) }}/h</div>
             </div>
-            <div class="resource-rate">+{{ resource.rate.toFixed(1) }}/h</div>
           </div>
         </div>
+      </div>
+    </div>
+    
+    <!-- Small population indicator below resources -->
+    <div class="population-indicator" @mouseover="showTooltip = true" @mouseleave="showTooltip = false">
+      <div class="population-content">
+        <v-icon size="16" :color="sparePopulation <= 0 ? '#ff5252' : '#4a4a4a'">mdi-account-group</v-icon>
+        <span class="population-numbers" :class="{ 'low-population': sparePopulation <= 0 }">
+          {{ sparePopulation }}/{{ totalPopulation }}
+        </span>
+      </div>
+      <div v-if="showTooltip" class="custom-tooltip">
+        <strong>Population:</strong> {{ totalPopulation }} total<br>
+        <strong>Working:</strong> {{ workingPopulation }}<br>
+        <strong>Available:</strong> {{ sparePopulation }}<br>
+        <small>Each person requires 10 food/hour. <br>Working population is engaged in construction tasks.</small>
       </div>
     </div>
   </div>
@@ -67,7 +85,8 @@ export default {
       lastUpdateTime: null,
       animationFrameId: null,
       serverClientTimeDiff: 0, // Time difference between server and client in milliseconds
-      dataReceiveTime: null // When we received the data from server
+      dataReceiveTime: null, // When we received the data from server
+      showTooltip: false
     };
   },
 
@@ -84,6 +103,15 @@ export default {
         amount: this.resourceAmounts[type] || 0,
         rate: this.getRate(type)
       }));
+    },
+    totalPopulation() {
+      return this.village?.total_population || 0;
+    },
+    workingPopulation() {
+      return this.village?.working_population || 0;
+    },
+    sparePopulation() {
+      return this.totalPopulation - this.workingPopulation;
     }
   },
 
@@ -289,13 +317,20 @@ export default {
 </script>
 
 <style scoped>
-.resources-arc {
+.resources-container {
   position: absolute;
   top: 20px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 100;
   width: 720px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.resources-arc {
+  width: 100%;
 }
 
 .resource-bar {
@@ -393,8 +428,66 @@ export default {
   font-weight: 500;
 }
 
+/* Population indicator styles */
+.population-indicator {
+  margin-top: 4px;
+  background-color: rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
+  padding: 4px 8px;
+  font-size: 12px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  cursor: help;
+  display: inline-block;
+  position: relative;
+}
+
+.population-content {
+  display: flex;
+  align-items: center;
+}
+
+.custom-tooltip {
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  white-space: nowrap;
+  z-index: 1000;
+  margin-top: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  pointer-events: none;
+  max-width: 250px;
+}
+
+.custom-tooltip:after {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-left: 0;
+  border-width: 5px;
+  border-style: solid;
+  border-color: transparent transparent rgba(0, 0, 0, 0.8) transparent;
+}
+
+.population-numbers {
+  margin-left: 4px;
+  font-weight: 600;
+  color: #333;
+}
+
+.low-population {
+  color: #ff5252;
+}
+
 @media (max-width: 600px) {
-  .resources-arc {
+  .resources-container {
     width: 420px;
     top: 48px;
   }
@@ -402,6 +495,11 @@ export default {
   .resource-bar {
     padding: 12px 16px;
     height: 56px;
+  }
+  
+  .population-indicator {
+    padding: 2px 6px;
+    font-size: 10px;
   }
   
   .resource-icon {
@@ -429,6 +527,10 @@ export default {
   
   .resource-section {
     padding: 0 6px;
+  }
+  
+  .population-numbers {
+    font-size: 12px;
   }
 }
 </style> 

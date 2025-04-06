@@ -36,7 +36,8 @@ class BuildingService:
                 "level": building.level,
                 "slot": building.slot,
                 "upgrade_cost": building.get_upgrade_cost(),
-                "upgrade_time": building.get_upgrade_time()
+                "upgrade_time": building.get_upgrade_time(),
+                "population": building.getPopulation()
             })
             
         return result 

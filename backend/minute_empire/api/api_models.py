@@ -118,6 +118,14 @@ class MapVillage(BaseModel):
         default=None,
         description="Base creation times in minutes for buildings and resource fields"
     )
+    total_population: Optional[int] = Field(
+        default=0,
+        description="Total population of the village (sum of all building and resource field levels)"
+    )
+    working_population: Optional[int] = Field(
+        default=0,
+        description="Working population of the village (sum of target levels of buildings and fields being constructed)"
+    )
 
 class MapInfoResponse(BaseModel):
     map_bounds: MapBounds

@@ -19,22 +19,35 @@ class Building:
     
     # Base creation times in minutes
     BASE_CREATION_TIMES = {
-        ConstructionType.CITY_CENTER: 30,
-        ConstructionType.WAREHOUSE: 20,
-        ConstructionType.GRANARY: 20,
-        ConstructionType.WALL: 15,
-        ConstructionType.RALLY_POINT: 10,
-        ConstructionType.BARRAKS: 25,
-        ConstructionType.ARCHERY: 25,
-        ConstructionType.STABLE: 30,
-        ConstructionType.HIDE_SPOT: 15,
+        ConstructionType.CITY_CENTER: 10,
+        ConstructionType.WAREHOUSE: 7,
+        ConstructionType.GRANARY: 7,
+        ConstructionType.WALL: 10,
+        ConstructionType.RALLY_POINT: 5,
+        ConstructionType.BARRAKS: 5,
+        ConstructionType.ARCHERY: 10,
+        ConstructionType.STABLE: 20,
+        ConstructionType.HIDE_SPOT: 10,
+    }
+
+    # Defines how the resource upgrade scales with level
+    CTN_TIME_LEVEL_SCALE = {
+        ConstructionType.CITY_CENTER: 1.2,
+        ConstructionType.WAREHOUSE: 1.2,
+        ConstructionType.GRANARY: 1.24,
+        ConstructionType.WALL: 1.2,
+        ConstructionType.RALLY_POINT: 1.2,
+        ConstructionType.BARRAKS: 1.2,
+        ConstructionType.ARCHERY: 1.2,
+        ConstructionType.STABLE: 1.2,
+        ConstructionType.HIDE_SPOT: 1.2,
     }
     
     # Base upgrade costs
     BASE_UPGRADE_COSTS = {
         ConstructionType.CITY_CENTER: {"wood": 200, "stone": 240, "iron": 140},
-        ConstructionType.WAREHOUSE: {"wood": 100, "stone": 120, "iron": 70},
-        ConstructionType.GRANARY: {"wood": 80, "stone": 100, "iron": 60},
+        ConstructionType.WAREHOUSE: {"wood": 200, "stone": 160, "iron": 120},
+        ConstructionType.GRANARY: {"wood": 180, "stone": 140, "iron": 100},
         ConstructionType.WALL: {"wood": 50, "stone": 250, "iron": 100},
         ConstructionType.RALLY_POINT: {"wood": 150, "stone": 70, "iron": 40},
         ConstructionType.BARRAKS: {"wood": 180, "stone": 150, "iron": 100},
@@ -45,15 +58,15 @@ class Building:
     
     # Base upgrade times in minutes
     BASE_UPGRADE_TIMES = {
-        ConstructionType.CITY_CENTER: 30,
-        ConstructionType.WAREHOUSE: 20,
-        ConstructionType.GRANARY: 20,
-        ConstructionType.WALL: 15,
-        ConstructionType.RALLY_POINT: 10,
-        ConstructionType.BARRAKS: 25,
-        ConstructionType.ARCHERY: 25,
+        ConstructionType.CITY_CENTER: 20,
+        ConstructionType.WAREHOUSE: 6,
+        ConstructionType.GRANARY: 4,
+        ConstructionType.WALL: 10,
+        ConstructionType.RALLY_POINT: 5,
+        ConstructionType.BARRAKS: 10,
+        ConstructionType.ARCHERY: 20,
         ConstructionType.STABLE: 30,
-        ConstructionType.HIDE_SPOT: 15,
+        ConstructionType.HIDE_SPOT: 10,
     }
     
     # Base production bonuses for buildings
@@ -149,9 +162,10 @@ class Building:
         """Calculate upgrade time in minutes"""
         if self.type not in Building.BASE_UPGRADE_TIMES:
             return 0
-            
+        if self.type not in Building.CTN_TIME_LEVEL_SCALE:
+            return 0     
         # Apply level multiplier
-        return int(Building.BASE_UPGRADE_TIMES[self.type] * (1.2 ** self.level))
+        return int(Building.BASE_UPGRADE_TIMES[self.type] * (Building.CTN_TIME_LEVEL_SCALE[self.type] ** self.level))
     
     def can_upgrade(self) -> bool:
         """Check if upgrade requirements are met"""
@@ -190,6 +204,16 @@ class Building:
     def to_dict(self) -> Dict[str, Any]:
         """Convert building to dictionary for storage or API responses"""
         return self.data.dict()
+
+    def getPopulation(self) -> int:
+        """
+        Get the population of the building.
+        Currently, this is simply the level of the building.
+        
+        Returns:
+            int: The population of the building
+        """
+        return self.level
 
     def __str__(self) -> str:
         return f"{self.type.value} (Level {self.level}, Slot {self.slot})" 

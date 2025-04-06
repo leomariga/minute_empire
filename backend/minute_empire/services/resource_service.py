@@ -44,7 +44,9 @@ class ResourceService:
                         task.completion_time <= now and 
                         not task.processed and
                         (task.task_type == TaskType.CREATE_FIELD or 
-                         task.task_type == TaskType.UPGRADE_FIELD)):
+                         task.task_type == TaskType.UPGRADE_FIELD or 
+                         task.task_type == TaskType.CREATE_BUILDING or 
+                         task.task_type == TaskType.UPGRADE_BUILDING)):
                         
                         resource_affecting_tasks.append(task)
             

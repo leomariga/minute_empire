@@ -326,6 +326,21 @@ class TimedConstructionService:
                 }
             }
             
+        # Check if there's enough spare population (level 1 for new buildings)
+        total_population = village.getTotalPopulation()
+        working_population = village.getWorkingPopulation()
+        spare_population = total_population - working_population
+        
+        if spare_population < 1:
+            return {
+                "success": False,
+                "error": "Insufficient spare population",
+                "required": 1,
+                "available": spare_population,
+                "total_population": total_population,
+                "working_population": working_population
+            }
+            
         # Validation passed successfully - no resource deduction here
         return {"success": True}
         
@@ -382,6 +397,21 @@ class TimedConstructionService:
                 }
             }
             
+        # Check if there's enough spare population (level 1 for new fields)
+        total_population = village.getTotalPopulation()
+        working_population = village.getWorkingPopulation()
+        spare_population = total_population - working_population
+        
+        if spare_population < 1:
+            return {
+                "success": False,
+                "error": "Insufficient spare population",
+                "required": 1,
+                "available": spare_population,
+                "total_population": total_population,
+                "working_population": working_population
+            }
+            
         # Validation passed successfully - no resource deduction here
         return {"success": True}
         
@@ -428,6 +458,23 @@ class TimedConstructionService:
                 "current_resources": resources
             }
             
+        # Check if there's enough spare population for the upgrade
+        total_population = village.getTotalPopulation()
+        working_population = village.getWorkingPopulation()
+        spare_population = total_population - working_population
+        
+        # For upgrades, we need enough spare population for the target level
+        target_level = building.level + 1
+        if spare_population < round(target_level**2):
+            return {
+                "success": False,
+                "error": "Insufficient spare population",
+                "required": round(target_level**2),
+                "available": spare_population,
+                "total_population": total_population,
+                "working_population": working_population
+            }
+            
         # Validation passed successfully - no resource deduction here
         return {"success": True}
         
@@ -472,6 +519,23 @@ class TimedConstructionService:
                 "cost": costs,
                 "missing": missing,
                 "current_resources": resources
+            }
+            
+        # Check if there's enough spare population for the upgrade
+        total_population = village.getTotalPopulation()
+        working_population = village.getWorkingPopulation()
+        spare_population = total_population - working_population
+        
+        # For upgrades, we need enough spare population for the target level
+        target_level = field.level + 1
+        if spare_population < round(target_level**2):
+            return {
+                "success": False,
+                "error": "Insufficient spare population",
+                "required": round(target_level**2),
+                "available": spare_population,
+                "total_population": total_population,
+                "working_population": working_population
             }
             
         # Validation passed successfully - no resource deduction here

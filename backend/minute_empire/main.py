@@ -404,6 +404,10 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                                     task for task in updated_village._data.construction_tasks
                                     if not task.processed
                                 ]
+                                
+                            # Add population information
+                            village_data.total_population = updated_village.getTotalPopulation()
+                            village_data.working_population = updated_village.getWorkingPopulation()
                     
                     villages_data.append(village_data)
             except Exception as village_error:

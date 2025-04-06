@@ -6,42 +6,42 @@ class ResourceProducer:
     
     # Base costs for creating new fields
     BASE_CREATION_COSTS = {
+        ResourceFieldType.FOOD: {"wood": 25, "stone": 25, "iron": 15},
         ResourceFieldType.WOOD: {"wood": 30, "stone": 40, "iron": 20},
         ResourceFieldType.STONE: {"wood": 40, "stone": 30, "iron": 25},
         ResourceFieldType.IRON: {"wood": 50, "stone": 60, "iron": 30},
-        ResourceFieldType.FOOD: {"wood": 25, "stone": 25, "iron": 15},
     }
     
     # Base creation times in minutes
     BASE_CREATION_TIMES = {
-        ResourceFieldType.WOOD: 15,
-        ResourceFieldType.STONE: 15,
-        ResourceFieldType.IRON: 15,
-        ResourceFieldType.FOOD: 15,
+        ResourceFieldType.FOOD: 2,
+        ResourceFieldType.WOOD: 2,
+        ResourceFieldType.STONE: 2,
+        ResourceFieldType.IRON: 2,
     }
     
     # Base production rates per hour
     BASE_PRODUCTION_RATES = {
-        ResourceFieldType.WOOD: 30,
-        ResourceFieldType.STONE: 25,
-        ResourceFieldType.IRON: 20,
-        ResourceFieldType.FOOD: 35,
+        ResourceFieldType.FOOD: 100,
+        ResourceFieldType.WOOD: 120,
+        ResourceFieldType.STONE: 100,
+        ResourceFieldType.IRON: 80,
     }
     
     # Base upgrade costs
     BASE_UPGRADE_COSTS = {
+        ResourceFieldType.FOOD: {"wood": 80, "stone": 60, "iron": 60},
         ResourceFieldType.WOOD: {"wood": 100, "stone": 80, "iron": 60},
         ResourceFieldType.STONE: {"wood": 80, "stone": 100, "iron": 60},
         ResourceFieldType.IRON: {"wood": 60, "stone": 80, "iron": 100},
-        ResourceFieldType.FOOD: {"wood": 80, "stone": 60, "iron": 60},
     }
     
     # Base upgrade times in minutes
     BASE_UPGRADE_TIMES = {
-        ResourceFieldType.WOOD: 15,
-        ResourceFieldType.STONE: 15,
-        ResourceFieldType.IRON: 15,
-        ResourceFieldType.FOOD: 15,
+        ResourceFieldType.FOOD: 1,
+        ResourceFieldType.WOOD: 1,
+        ResourceFieldType.STONE: 1,
+        ResourceFieldType.IRON: 1,
     }
     
     @staticmethod
@@ -163,7 +163,7 @@ class ResourceProducer:
             return 0
             
         # Apply level multiplier
-        return int(ResourceProducer.BASE_UPGRADE_TIMES[self.type] * (1.2 ** self.level))
+        return int(ResourceProducer.BASE_UPGRADE_TIMES[self.type] * (1.42 ** self.level))
     
     def can_upgrade(self) -> bool:
         """Check if upgrade requirements are met"""
@@ -176,6 +176,16 @@ class ResourceProducer:
     def to_dict(self) -> Dict[str, Any]:
         """Convert resource field to dictionary for storage or API responses"""
         return self.data.dict()
+    
+    def getPopulation(self) -> int:
+        """
+        Get the population of the resource field.
+        Currently, this is simply the level of the resource field.
+        
+        Returns:
+            int: The population of the resource field
+        """
+        return self.level
     
     def __str__(self) -> str:
         return f"{self.type.value} field (Level {self.level}, Slot {self.slot})" 
