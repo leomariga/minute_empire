@@ -254,9 +254,12 @@ export default {
 
     updateResourceAmounts() {
       // Use server-adjusted time for calculations
-      const now = this.getCurrentServerTime();
-      const elapsed = (now - this.lastUpdateTime) / 1000; // seconds
-      this.lastUpdateTime = now;
+      // Calculate how much time has passed since the server sent this data
+      let elapsedSinceDataReceive = 0;
+      if (this.dataReceiveTime) {
+        // Time passed since we received the data from the server
+        elapsedSinceDataReceive = (Date.now() - this.dataReceiveTime) / 1000; // in seconds
+      }
 
       if (this.hasResources) {
         this.resourceTypes.forEach(type => {
@@ -265,8 +268,7 @@ export default {
             const capacity = this.village.resources[type].capacity;
             
             // Calculate new amount (convert rate from per hour to per second)
-            let newAmount = this.resourceAmounts[type] + (rate / 3600) * elapsed;
-            
+            let newAmount = this.village.resources[type].current + (rate / 3600) * elapsedSinceDataReceive;
             // Cap at capacity
             if (newAmount > capacity) {
               newAmount = capacity;

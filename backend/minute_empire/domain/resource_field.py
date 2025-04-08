@@ -6,10 +6,10 @@ class ResourceProducer:
     
     # Base costs for creating new fields
     BASE_CREATION_COSTS = {
-        ResourceFieldType.FOOD: {"wood": 25, "stone": 25, "iron": 15},
-        ResourceFieldType.WOOD: {"wood": 30, "stone": 40, "iron": 20},
-        ResourceFieldType.STONE: {"wood": 40, "stone": 30, "iron": 25},
-        ResourceFieldType.IRON: {"wood": 50, "stone": 60, "iron": 30},
+        ResourceFieldType.FOOD: {"food": 10, "wood": 25, "stone": 25, "iron": 15},
+        ResourceFieldType.WOOD: {"food": 20, "wood": 30, "stone": 40, "iron": 20},
+        ResourceFieldType.STONE: {"food": 25, "wood": 40, "stone": 30, "iron": 25},
+        ResourceFieldType.IRON: {"food": 30, "wood": 50, "stone": 60, "iron": 30},
     }
     
     # Base creation times in minutes
@@ -30,10 +30,10 @@ class ResourceProducer:
     
     # Base upgrade costs
     BASE_UPGRADE_COSTS = {
-        ResourceFieldType.FOOD: {"wood": 80, "stone": 60, "iron": 60},
-        ResourceFieldType.WOOD: {"wood": 100, "stone": 80, "iron": 60},
-        ResourceFieldType.STONE: {"wood": 80, "stone": 100, "iron": 60},
-        ResourceFieldType.IRON: {"wood": 60, "stone": 80, "iron": 100},
+        ResourceFieldType.FOOD: {"food": 20, "wood": 80, "stone": 60, "iron": 60},
+        ResourceFieldType.WOOD: {"food": 60, "wood": 100, "stone": 80, "iron": 60},
+        ResourceFieldType.STONE: {"food": 60, "wood": 80, "stone": 100, "iron": 60},
+        ResourceFieldType.IRON: {"food": 60, "wood": 60, "stone": 80, "iron": 100},
     }
     
     # Base upgrade times in minutes

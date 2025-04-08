@@ -6,15 +6,15 @@ class Building:
     
     # Base costs for creating new buildings
     BASE_CREATION_COSTS = {
-        ConstructionType.CITY_CENTER: {"wood": 150, "stone": 180, "iron": 100},
-        ConstructionType.WAREHOUSE: {"wood": 70, "stone": 90, "iron": 50},
-        ConstructionType.GRANARY: {"wood": 60, "stone": 75, "iron": 40},
-        ConstructionType.WALL: {"wood": 30, "stone": 200, "iron": 80},
-        ConstructionType.RALLY_POINT: {"wood": 100, "stone": 50, "iron": 30},
-        ConstructionType.BARRAKS: {"wood": 130, "stone": 120, "iron": 80},
-        ConstructionType.ARCHERY: {"wood": 170, "stone": 100, "iron": 100},
-        ConstructionType.STABLE: {"wood": 150, "stone": 150, "iron": 150},
-        ConstructionType.HIDE_SPOT: {"wood": 70, "stone": 120, "iron": 60},
+        ConstructionType.CITY_CENTER: {"food": 60, "wood": 150, "stone": 180, "iron": 100},
+        ConstructionType.WAREHOUSE: {"food": 50, "wood": 70, "stone": 90, "iron": 50},
+        ConstructionType.GRANARY: {"food": 30, "wood": 60, "stone": 75, "iron": 40},
+        ConstructionType.WALL: {"food": 0, "wood": 30, "stone": 200, "iron": 80},
+        ConstructionType.RALLY_POINT: {"food": 100, "wood": 100, "stone": 80, "iron": 30},
+        ConstructionType.BARRAKS: {"food": 150, "wood": 130, "stone": 120, "iron": 80},
+        ConstructionType.ARCHERY: {"food": 150, "wood": 170, "stone": 100, "iron": 100},
+        ConstructionType.STABLE: {"food": 200, "wood": 150, "stone": 150, "iron": 150},
+        ConstructionType.HIDE_SPOT: {"food": 20, "wood": 70, "stone": 120, "iron": 60},
     }
     
     # Base creation times in minutes
@@ -45,15 +45,15 @@ class Building:
     
     # Base upgrade costs
     BASE_UPGRADE_COSTS = {
-        ConstructionType.CITY_CENTER: {"wood": 200, "stone": 240, "iron": 140},
-        ConstructionType.WAREHOUSE: {"wood": 200, "stone": 160, "iron": 120},
-        ConstructionType.GRANARY: {"wood": 180, "stone": 140, "iron": 100},
-        ConstructionType.WALL: {"wood": 50, "stone": 250, "iron": 100},
-        ConstructionType.RALLY_POINT: {"wood": 150, "stone": 70, "iron": 40},
-        ConstructionType.BARRAKS: {"wood": 180, "stone": 150, "iron": 100},
-        ConstructionType.ARCHERY: {"wood": 220, "stone": 120, "iron": 140},
-        ConstructionType.STABLE: {"wood": 200, "stone": 180, "iron": 200},
-        ConstructionType.HIDE_SPOT: {"wood": 100, "stone": 150, "iron": 80},
+        ConstructionType.CITY_CENTER: {"food": 300, "wood": 200, "stone": 240, "iron": 140},
+        ConstructionType.WAREHOUSE: {"food": 60, "wood": 200, "stone": 160, "iron": 120},
+        ConstructionType.GRANARY: {"food": 60, "wood": 180, "stone": 140, "iron": 100},
+        ConstructionType.WALL: {"food": 300, "wood": 50, "stone": 250, "iron": 100},
+        ConstructionType.RALLY_POINT: {"food": 0, "wood": 150, "stone": 70, "iron": 40},
+        ConstructionType.BARRAKS: {"food": 100, "wood": 180, "stone": 150, "iron": 100},
+        ConstructionType.ARCHERY: {"food": 100, "wood": 220, "stone": 120, "iron": 140},
+        ConstructionType.STABLE: {"food": 200, "wood": 200, "stone": 180, "iron": 200},
+        ConstructionType.HIDE_SPOT: {"food": 50, "wood": 100, "stone": 150, "iron": 80},
     }
     
     # Base upgrade times in minutes
