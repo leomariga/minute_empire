@@ -2,13 +2,15 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from minute_empire.domain.village import Village
 from minute_empire.repositories.village_repository import VillageRepository
-from minute_empire.schemas.schemas import TaskType
+from minute_empire.schemas.schemas import TaskType, ConstructionTask, TroopTrainingTask
+from minute_empire.services.timed_tasks_service import TimedConstructionService
 
 class ResourceService:
     """Service for resource-related operations"""
     
     def __init__(self):
         self.village_repository = VillageRepository()
+        self.timed_tasks_service = TimedConstructionService()
     
     async def update_village_resources(self, village_id: str) -> Optional[Village]:
         """
@@ -50,6 +52,15 @@ class ResourceService:
                         
                         resource_affecting_tasks.append(task)
             
+            # Add troop training tasks to the list
+            if hasattr(village._data, 'troop_training_tasks'):
+                for task in village._data.troop_training_tasks:
+                    if (task.completion_time > last_update and 
+                        task.completion_time <= now and 
+                        not task.processed):
+                        
+                        resource_affecting_tasks.append(task)
+            
             # Sort tasks by completion time
             resource_affecting_tasks.sort(key=lambda t: t.completion_time)
             
@@ -74,9 +85,22 @@ class ResourceService:
                     if segment_hours > 0:
                         village.update_resources(segment_hours)
                     
-                    # Complete this task to update production rates
-                    print(f"[ResourceService] Completing task {task.task_type} for {task.target_type} in slot {task.slot}")
-                    village.complete_construction_task(task)
+                    # Complete this task based on its type
+                    if isinstance(task, ConstructionTask):
+                        print(f"[ResourceService] Completing construction task {task.task_type} for {task.target_type} in slot {task.slot}")
+                        village.complete_construction_task(task)
+                    elif hasattr(task, 'troop_type'):
+                        print(f"[ResourceService] Processing troop training task for {task.troop_type}, quantity {task.quantity}")
+                        
+                        # Mark the task as processed directly 
+                        task.processed = True
+                        village.mark_as_changed()
+                        
+                        # Create the troop via the timed_tasks_service
+                        result = await self.timed_tasks_service.complete_troop_training_task(village_id, task.id)
+                        if not result.get("success"):
+                            print(f"[ResourceService] Failed to create troop: {result.get('error')}")
+                            # We still keep the task marked as processed even if troop creation fails
                     
                     # Next segment starts from this task's completion
                     start_time = task.completion_time

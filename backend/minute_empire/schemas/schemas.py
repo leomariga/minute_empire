@@ -6,8 +6,8 @@ from enum import Enum
 class TroopType(str, Enum):
     MILITIA = "militia"
     ARCHER = "archer"
-    CAVALRY = "cavalry"
-    SPEARMAN = "spearman"
+    LIGHT_CAVALRY = "light_cavalry"
+    PIKEMAN = "pikeman"
 
 class ResourceFieldType(str, Enum):
     WOOD = "wood"
@@ -88,6 +88,14 @@ class UserInDB(BaseModel):
             datetime: lambda v: v.isoformat()
         }
 
+class TroopTrainingTask(BaseModel):
+    id: str
+    troop_type: TroopType
+    quantity: int = Field(..., gt=0)
+    started_at: datetime
+    completion_time: datetime
+    processed: bool = Field(default=False)
+
 class VillageInDB(BaseModel):
     """Schema for village as stored in database."""
     id: str = Field(alias="_id")
@@ -101,6 +109,7 @@ class VillageInDB(BaseModel):
     created_at: datetime
     updated_at: datetime
     construction_tasks: List[ConstructionTask] = Field(default_factory=list)
+    troop_training_tasks: List[TroopTrainingTask] = Field(default_factory=list)
 
     class Config:
         allow_population_by_field_name = True
@@ -120,6 +129,28 @@ class TroopInDB(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    class Config:
+        allow_population_by_field_name = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+class ActionType(str, Enum):
+    MOVE = "move"
+    ATTACK = "attack"
+    TRADE = "trade"
+
+class TroopActionTaskInDB(BaseModel):
+    """Schema for troop action tasks as stored in database."""
+    id: str = Field(alias="_id")
+    troop_id: str
+    action_type: ActionType
+    start_location: Location
+    target_location: Location
+    started_at: datetime
+    completion_time: datetime
+    processed: bool = Field(default=False)
+    
     class Config:
         allow_population_by_field_name = True
         json_encoders = {

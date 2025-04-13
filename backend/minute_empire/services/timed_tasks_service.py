@@ -2,11 +2,15 @@ from datetime import datetime
 from typing import Dict, List, Optional, Any
 from minute_empire.repositories.village_repository import VillageRepository
 from minute_empire.schemas.schemas import TaskType, ConstructionTask 
-from minute_empire.schemas.schemas import ConstructionType, ResourceFieldType
+from minute_empire.schemas.schemas import ConstructionType, ResourceFieldType, TroopType
 from minute_empire.services.building_service import BuildingService
 from minute_empire.services.resource_field_service import ResourceFieldService
 from minute_empire.domain.resource_field import ResourceProducer
 from minute_empire.domain.building import Building
+from minute_empire.domain.troop import Troop
+from bson import ObjectId
+from minute_empire.repositories.troops_repository import TroopsRepository
+
 class TimedConstructionService:
     """
     Service for managing timed construction of buildings and fields.
@@ -17,6 +21,7 @@ class TimedConstructionService:
         self.village_repository = VillageRepository()
         self.building_service = BuildingService()
         self.resource_field_service = ResourceFieldService()
+        self.troops_repository = TroopsRepository()
     
     async def get_pending_tasks(self, village_id: str) -> List[Dict[str, Any]]:
         """
@@ -270,6 +275,110 @@ class TimedConstructionService:
             "estimated_completion": task.completion_time,
             "task_id": task.id
         }
+        
+    async def start_troop_training(self, village_id: str, troop_type: TroopType, quantity: int) -> Dict[str, Any]:
+        """
+        Start timed troop training.
+        
+        Args:
+            village_id: The ID of the village
+            troop_type: Type of troop to train
+            quantity: Number of troops to train
+            
+        Returns:
+            Dict[str, Any]: Result of the operation
+        """
+        # Validate the troop training first
+        validation_result = await self._validate_troop_training(village_id, troop_type, quantity)
+        if not validation_result["success"]:
+            return validation_result
+            
+        # Get the village after validation
+        village = await self.village_repository.get_by_id(village_id)
+        
+        # Deduct resources for the task
+        costs = Troop.get_training_cost(troop_type, quantity)
+        if not village.deduct_resources(costs):
+            return {
+                "success": False,
+                "error": "Insufficient resources",
+                "cost": costs
+            }
+            
+        # Get the training time in minutes
+        duration = Troop.get_training_time(troop_type, quantity)
+        
+        # Create task
+        task = village.add_troop_training_task(
+            troop_type.value,
+            quantity,
+            duration
+        )
+        
+        # Save changes
+        await self.village_repository.save(village)
+        
+        return {
+            "success": True,
+            "troop_type": troop_type.value,
+            "quantity": quantity,
+            "estimated_completion": task.completion_time,
+            "task_id": task.id
+        }
+        
+    async def complete_troop_training_task(self, village_id: str, task_id: str) -> Dict[str, Any]:
+        """
+        Complete a troop training task by creating the trained troops.
+        
+        Args:
+            village_id: The ID of the village
+            task_id: The ID of the task that's being completed
+            
+        Returns:
+            Dict[str, Any]: Result of the operation
+        """
+        # Get the village
+        village = await self.village_repository.get_by_id(village_id)
+        if not village:
+            return {"success": False, "error": "Village not found"}
+        
+        # Find the task to get its details
+        task = None
+        if hasattr(village._data, 'troop_training_tasks'):
+            task = next((t for t in village._data.troop_training_tasks if t.id == task_id), None)
+        
+        if not task:
+            return {"success": False, "error": "Task not found"}
+        
+        try:
+            # Create the troop data
+            troop_data = {
+                "_id": str(ObjectId()),
+                "type": task.troop_type,
+                "quantity": task.quantity,
+                "home_id": village_id,
+                "location": village.location,
+                "mode": "idle",
+                "backpack": {
+                    "wood": 0,
+                    "stone": 0,
+                    "iron": 0,
+                    "food": 0
+                },
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow()
+            }
+            
+            # Save the troop to the database
+            troop = await self.troops_repository.create(troop_data)
+            if not troop:
+                return {"success": False, "error": "Failed to create troop"}
+            
+            return {"success": True, "troop_id": troop.id}
+            
+        except Exception as e:
+            print(f"[TimedConstructionService] Error creating troop: {str(e)}")
+            return {"success": False, "error": f"Error creating troops: {str(e)}"}
         
     # Helper validation methods that use existing services
     
@@ -533,6 +642,49 @@ class TimedConstructionService:
                 "success": False,
                 "error": "Insufficient spare population",
                 "required": round(target_level**2),
+                "available": spare_population,
+                "total_population": total_population,
+                "working_population": working_population
+            }
+            
+        # Validation passed successfully - no resource deduction here
+        return {"success": True}
+        
+    async def _validate_troop_training(self, village_id: str, troop_type: TroopType, quantity: int) -> Dict[str, Any]:
+        """Validate troop training parameters without training the troops"""
+        village = await self.village_repository.get_by_id(village_id)
+        if not village:
+            return {"success": False, "error": "Village not found"}
+            
+        # Check if there's already a pending training task for this troop
+        if hasattr(village._data, 'troop_training_tasks'):
+            for task in village._data.troop_training_tasks:
+                if not task.processed and task.troop_type == troop_type.value:
+                    return {
+                        "success": False, 
+                        "error": f"There is already a pending troop training task for troop type {troop_type.value}"
+                    }
+            
+        # Check if we can afford the training
+        costs = Troop.get_training_cost(troop_type, quantity)
+        if not village.deduct_resources(costs):
+            return {
+                "success": False, 
+                "error": "Insufficient resources",
+                "cost": costs
+            }
+            
+        # Check if there's enough spare population for the training
+        total_population = village.getTotalPopulation()
+        working_population = village.getWorkingPopulation()
+        spare_population = total_population - working_population
+        
+        # For training, we need enough spare population for the quantity
+        if spare_population < quantity:
+            return {
+                "success": False,
+                "error": "Insufficient spare population",
+                "required": quantity,
                 "available": spare_population,
                 "total_population": total_population,
                 "working_population": working_population

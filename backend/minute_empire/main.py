@@ -196,13 +196,30 @@ async def logout(response: Response):
 
 @app.get("/villages/me")
 async def get_my_villages(current_user: dict = Depends(get_current_user)):
-    """Get all villages owned by the current user."""
+    """Get all villages owned by the current user.
+    
+    Returns a list of village summaries for the current user, with each summary including:
+    - Basic village information
+    - Resource information
+    - Building and construction information
+    - Troops owned by the village
+    - Active troop actions
+    
+    This data is used by the frontend to display the village information, including
+    the Raw Village Data (JSON) section which shows the complete village data.
+    """
     from minute_empire.repositories.village_repository import VillageRepository
     from minute_empire.services.resource_service import ResourceService
+    from minute_empire.repositories.troops_repository import TroopsRepository
+    from minute_empire.repositories.troop_action_repository import TroopActionRepository
+    from datetime import datetime
+    import traceback
     
     # Initialize repositories and services
     village_repo = VillageRepository()
     resource_service = ResourceService()
+    troops_repo = TroopsRepository()
+    troop_action_repo = TroopActionRepository()
     
     try:
         # Update resources and get updated villages in one operation
@@ -213,13 +230,69 @@ async def get_my_villages(current_user: dict = Depends(get_current_user)):
         # Convert villages to summaries
         village_summaries = []
         for village in villages:
-            if village is not None:  # Check if village exists
-                summary = village.get_summary()
-                if summary:  # Check if summary is not None
-                    village_summaries.append(summary)
+            try:
+                if village is not None:  # Check if village exists
+                    summary = village.get_summary()
+                    if summary:  # Check if summary is not None
+                        # Get troops for this village
+                        try:
+                            village_troops = await troops_repo.get_by_home(village.id)
+                        except Exception as troops_error:
+                            print(f"Error getting troops for village {village.id}: {str(troops_error)}")
+                            print(traceback.format_exc())
+                            village_troops = []  # Continue with empty troops list
+                        
+                        # Get troop actions for each troop
+                        troop_actions = []
+                        for troop in village_troops:
+                            try:
+                                actions = await troop_action_repo.get_active_actions_for_troop(troop.id)
+                                if actions:
+                                    # Convert each action to a dict with proper datetime handling
+                                    for action in actions:
+                                        action_dict = action.dict(by_alias=True)
+                                        # Ensure datetime fields are properly converted to strings
+                                        for field in ["started_at", "completion_time"]:
+                                            if field in action_dict and isinstance(action_dict[field], datetime):
+                                                action_dict[field] = action_dict[field].isoformat()
+                                        troop_actions.append(action_dict)
+                            except Exception as actions_error:
+                                print(f"Error getting actions for troop {troop.id}: {str(actions_error)}")
+                                print(traceback.format_exc())
+                                continue  # Skip this troop and continue with the next one
+                        
+                        # Add troops and troop actions to the summary without modifying the original structure
+                        summary_dict = dict(summary)
+                        
+                        # Convert troops to dict with proper datetime handling
+                        troops_list = []
+                        for troop in village_troops:
+                            try:
+                                troop_dict = troop.dict(by_alias=True)
+                                # Ensure datetime fields are properly converted to strings
+                                for field in ["created_at", "updated_at"]:
+                                    if field in troop_dict and isinstance(troop_dict[field], datetime):
+                                        troop_dict[field] = troop_dict[field].isoformat()
+                                troops_list.append(troop_dict)
+                            except Exception as troop_dict_error:
+                                print(f"Error converting troop to dict: {str(troop_dict_error)}")
+                                print(traceback.format_exc())
+                                continue  # Skip this troop and continue with the next one
+                        
+                        # Add the troops and troop actions to the summary
+                        summary_dict["troops"] = troops_list
+                        summary_dict["troop_actions"] = troop_actions
+                        
+                        village_summaries.append(summary_dict)
+            except Exception as village_error:
+                print(f"Error processing village: {str(village_error)}")
+                print(traceback.format_exc())
+                continue  # Skip this village and continue with the next one
         
         return village_summaries
     except Exception as e:
+        print(f"Error in get_my_villages: {str(e)}")
+        print(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/villages/command", response_model=CommandResponse)

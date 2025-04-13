@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
 from minute_empire.schemas.schemas import VillageInDB, ConstructionType, ResourceFieldType
-from minute_empire.schemas.schemas import TaskType, ConstructionTask, Construction, ResourceField
+from minute_empire.schemas.schemas import TaskType, ConstructionTask, Construction, ResourceField, TroopTrainingTask
 from minute_empire.domain.building import Building
 from minute_empire.domain.resource_field import ResourceProducer
 from bson import ObjectId
@@ -465,6 +465,21 @@ class Village:
                         "completion_time": task.completion_time,
                         "time_remaining_seconds": max(0, (task.completion_time - now).total_seconds())
                     })
+        
+        # Get pending troop training tasks
+        pending_troop_tasks = []
+        
+        if hasattr(self._data, 'troop_training_tasks'):
+            for task in self._data.troop_training_tasks:
+                if not task.processed:
+                    pending_troop_tasks.append({
+                        "id": task.id,
+                        "troop_type": task.troop_type,
+                        "quantity": task.quantity,
+                        "started_at": task.started_at,
+                        "completion_time": task.completion_time,
+                        "time_remaining_seconds": max(0, (task.completion_time - now).total_seconds())
+                    })
             
         # Calculate population metrics
         total_population = self.getTotalPopulation()
@@ -488,6 +503,7 @@ class Village:
             "building_count": building_count,
             "resource_fields_count": resource_fields_count,
             "construction_tasks": pending_tasks,
+            "troop_training_tasks": pending_troop_tasks,
             "total_population": total_population,
             "working_population": working_population,
             "res_update_at": self.res_update_at,
@@ -567,3 +583,39 @@ class Village:
     
     def __str__(self) -> str:
         return f"Village: {self.name} at {self.location}"
+
+    def add_troop_training_task(self, troop_type: str, quantity: int, duration_minutes: int) -> TroopTrainingTask:
+        """
+        Add a new troop training task to the village.
+        
+        Args:
+            troop_type: Type of troop to train
+            quantity: Number of troops to train
+            duration_minutes: How long the task takes to complete
+            
+        Returns:
+            TroopTrainingTask: The newly created task
+        """
+        # Make sure we have a troop_training_tasks list
+        if not hasattr(self._data, 'troop_training_tasks'):
+            self._data.troop_training_tasks = []
+            
+        # Create the task
+        now = datetime.utcnow()
+        completion_time = now + timedelta(minutes=duration_minutes)
+        
+        task = TroopTrainingTask(
+            id=str(ObjectId()),
+            troop_type=troop_type,
+            quantity=quantity,
+            started_at=now,
+            completion_time=completion_time
+        )
+        
+        # Add to village data
+        self._data.troop_training_tasks.append(task)
+        
+        # Mark as changed
+        self.mark_as_changed()
+        
+        return task

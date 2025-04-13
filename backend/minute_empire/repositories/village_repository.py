@@ -117,4 +117,19 @@ class VillageRepository:
                     print(f"Error converting village data: {str(e)}")
                     continue
                 
-            return villages 
+            return villages
+    
+    async def find_by_location(self, x: int, y: int) -> Optional[Village]:
+        """Find a village at the given location coordinates"""
+        async with get_db() as db:
+            village_data = await db[self.COLLECTION].find_one({
+                "location.x": x,
+                "location.y": y
+            })
+            
+            if village_data:
+                # Convert DB dict to Pydantic model
+                village_model = VillageInDB(**village_data)
+                # Wrap in domain object
+                return Village(village_model)
+            return None 
