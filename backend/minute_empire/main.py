@@ -212,6 +212,7 @@ async def get_my_villages(current_user: dict = Depends(get_current_user)):
     from minute_empire.services.resource_service import ResourceService
     from minute_empire.repositories.troops_repository import TroopsRepository
     from minute_empire.repositories.troop_action_repository import TroopActionRepository
+    from minute_empire.services.troop_action_service import TroopActionService
     from datetime import datetime
     import traceback
     
@@ -220,8 +221,20 @@ async def get_my_villages(current_user: dict = Depends(get_current_user)):
     resource_service = ResourceService()
     troops_repo = TroopsRepository()
     troop_action_repo = TroopActionRepository()
+    troop_action_service = TroopActionService()
     
     try:
+        # Process all pending troop actions first
+        try:
+            troop_action_result = await troop_action_service.process_pending_troop_actions()
+            print(f"Processed troop actions: {troop_action_result['message']}")
+            if troop_action_result.get('errors') and len(troop_action_result['errors']) > 0:
+                print(f"Troop action errors: {troop_action_result['errors']}")
+        except Exception as action_error:
+            print(f"Error processing troop actions: {str(action_error)}")
+            print(traceback.format_exc())
+            # Continue with the rest of the function even if action processing fails
+        
         # Update resources and get updated villages in one operation
         villages = await resource_service.update_all_user_villages(current_user["id"])
         if not villages:
@@ -338,14 +351,27 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     """Get map information including bounds and all villages."""
     from minute_empire.repositories.village_repository import VillageRepository
     from minute_empire.services.resource_service import ResourceService
+    from minute_empire.services.troop_action_service import TroopActionService
     from datetime import datetime
     import traceback
     
     # Initialize repositories and services
     village_repo = VillageRepository()
     resource_service = ResourceService()
+    troop_action_service = TroopActionService()
     
     try:
+        # Process all pending troop actions first
+        try:
+            troop_action_result = await troop_action_service.process_pending_troop_actions()
+            print(f"Processed troop actions: {troop_action_result['message']}")
+            if troop_action_result.get('errors') and len(troop_action_result['errors']) > 0:
+                print(f"Troop action errors: {troop_action_result['errors']}")
+        except Exception as action_error:
+            print(f"Error processing troop actions: {str(action_error)}")
+            print(traceback.format_exc())
+            # Continue with the rest of the function even if action processing fails
+        
         # Get map bounds from World
         x_min, x_max, y_min, y_max = World.get_map_bounds()
         map_size = World.MAP_SIZE

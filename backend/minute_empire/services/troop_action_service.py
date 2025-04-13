@@ -226,4 +226,91 @@ class TroopActionService:
                 "estimated_completion": action.completion_time
             }
         except Exception as e:
-            return {"success": False, "error": f"Error creating attack action: {str(e)}"} 
+            return {"success": False, "error": f"Error creating attack action: {str(e)}"}
+    
+    async def process_pending_troop_actions(self) -> Dict[str, Any]:
+        """
+        Process all troop actions that have reached their completion time.
+        This includes movement and attack actions.
+        
+        Returns:
+            Dict[str, Any]: Summary of processed actions
+        """
+        # Get all pending (unprocessed) actions where completion_time <= now
+        pending_actions = await self.action_repository.get_pending_actions()
+        
+        if not pending_actions:
+            return {"success": True, "processed_count": 0, "message": "No pending troop actions found"}
+        
+        # Debug print - number of pending actions found
+        print(f"[TroopActionService] Found {len(pending_actions)} pending troop actions to process")
+        
+        processed_count = 0
+        processed_moves = 0
+        processed_attacks = 0
+        errors = []
+        
+        # Process each pending action
+        for action in pending_actions:
+            try:
+                # Get the troop associated with this action
+                troop = await self.troops_repository.get_by_id(action.troop_id)
+                if not troop:
+                    errors.append(f"Troop {action.troop_id} not found for action {action.id}")
+                    continue
+                
+                # Process based on action type
+                if action.action_type == ActionType.MOVE:
+                    # Update troop location to target location
+                    update_data = {
+                        "location": {
+                            "x": action.target_location.x,
+                            "y": action.target_location.y
+                        },
+                        "mode": TroopMode.IDLE.value
+                    }
+                    
+                    update_result = await self.troops_repository.update(troop.id, update_data)
+                    if update_result:
+                        processed_moves += 1
+                        print(f"[TroopActionService] MOVE completed: Troop {troop.id} moved from ({action.start_location.x},{action.start_location.y}) to ({action.target_location.x},{action.target_location.y})")
+                    else:
+                        errors.append(f"Failed to update troop {troop.id} location for move action")
+                
+                elif action.action_type == ActionType.ATTACK:
+                    # For now, just update location like a move action
+                    # In the future, this will involve combat calculations
+                    update_data = {
+                        "location": {
+                            "x": action.target_location.x,
+                            "y": action.target_location.y
+                        },
+                        "mode": TroopMode.IDLE.value
+                    }
+                    
+                    update_result = await self.troops_repository.update(troop.id, update_data)
+                    if update_result:
+                        processed_attacks += 1
+                        print(f"[TroopActionService] ATTACK completed: Troop {troop.id} attacked at ({action.target_location.x},{action.target_location.y})")
+                    else:
+                        errors.append(f"Failed to update troop {troop.id} location for attack action")
+                
+                # Mark action as processed regardless of type
+                await self.action_repository.mark_processed(action.id)
+                processed_count += 1
+                
+            except Exception as e:
+                errors.append(f"Error processing action {action.id}: {str(e)}")
+                print(f"[TroopActionService] Error processing action {action.id}: {str(e)}")
+        
+        if processed_count > 0:
+            print(f"[TroopActionService] Processed {processed_count} troop actions: {processed_moves} moves, {processed_attacks} attacks")
+        
+        return {
+            "success": True,
+            "processed_count": processed_count,
+            "processed_moves": processed_moves,
+            "processed_attacks": processed_attacks,
+            "errors": errors,
+            "message": f"Processed {processed_count} troop actions ({processed_moves} moves, {processed_attacks} attacks)"
+        } 
