@@ -24,7 +24,9 @@ from minute_empire.api.api_models import (
     ResourceInfo,
     ResourceFieldsInfo,
     CityInfo,
-    ConstructionInfo
+    ConstructionInfo,
+    TroopInfo,
+    TroopActionInfo
 )
 from minute_empire.domain.world import World
 from minute_empire.domain.building import Building
@@ -352,6 +354,8 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     from minute_empire.repositories.village_repository import VillageRepository
     from minute_empire.services.resource_service import ResourceService
     from minute_empire.services.troop_action_service import TroopActionService
+    from minute_empire.repositories.troops_repository import TroopsRepository
+    from minute_empire.repositories.troop_action_repository import TroopActionRepository
     from datetime import datetime
     import traceback
     
@@ -359,6 +363,8 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     village_repo = VillageRepository()
     resource_service = ResourceService()
     troop_action_service = TroopActionService()
+    troops_repo = TroopsRepository()
+    troop_action_repo = TroopActionRepository()
     
     try:
         # Process all pending troop actions first
@@ -514,6 +520,55 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                 print(traceback.format_exc())
                 continue
         
+        # Get all troops data
+        all_troops = []
+        try:
+            troops = await troops_repo.get_all()
+            
+            # Process each troop
+            for troop in troops:
+                troop_data = {
+                    "id": troop.id,
+                    "type": troop.type,
+                    "home_id": troop.home_id, 
+                    "quantity": troop.quantity,
+                    "location": Location(x=troop.location.x, y=troop.location.y)
+                }
+                
+                # Add mode and backpack only if the user owns the troop
+                if any(v.owner_id == current_user["id"] for v in all_villages if v and v.id == troop.home_id):
+                    troop_data["mode"] = troop.mode
+                    troop_data["backpack"] = troop.backpack
+                
+                all_troops.append(TroopInfo(**troop_data))
+        except Exception as troop_error:
+            print(f"Error getting troops: {str(troop_error)}")
+            print(traceback.format_exc())
+            # Continue with empty troop list
+        
+        # Get all troop actions data
+        all_troop_actions = []
+        try:
+            # Only get non-processed actions
+            actions = await troop_action_repo.get_all_active()
+            
+            for action in actions:
+                if not action.processed:
+                    action_data = {
+                        "id": action.id,
+                        "troop_id": action.troop_id,
+                        "action_type": action.action_type,
+                        "start_location": Location(x=action.start_location.x, y=action.start_location.y),
+                        "target_location": Location(x=action.target_location.x, y=action.target_location.y),
+                        "started_at": action.started_at.isoformat(),
+                        "completion_time": action.completion_time.isoformat()
+                    }
+                    all_troop_actions.append(TroopActionInfo(**action_data))
+        except Exception as action_error:
+            print(f"Error getting troop actions: {str(action_error)}")
+            print(traceback.format_exc())
+            # Continue with empty actions list
+        
         # Create the final response
         try:
             response = MapInfoResponse(
@@ -525,6 +580,8 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                 ),
                 map_size=map_size,
                 villages=villages_data,
+                troops=all_troops,
+                troop_actions=all_troop_actions,
                 server_time=datetime.utcnow().isoformat()
             )
             return response

@@ -1,7 +1,10 @@
 from pydantic import BaseModel, Field, validator
 import re
-from typing import Optional, List, Dict
-from minute_empire.schemas.schemas import Location, ResourceField, City, Construction, ConstructionType, TaskType, ConstructionTask
+from typing import Optional, List, Dict, Union
+from minute_empire.schemas.schemas import (
+    Location, ResourceField, City, Construction, ConstructionType, TaskType, ConstructionTask,
+    TroopType, TroopMode, ActionType, Resources
+)
 
 # Pydantic model for registration request
 class RegistrationRequest(BaseModel):
@@ -127,8 +130,30 @@ class MapVillage(BaseModel):
         description="Working population of the village (sum of target levels of buildings and fields being constructed)"
     )
 
+# Troop models
+class TroopInfo(BaseModel):
+    id: str = Field(..., description="Troop ID")
+    type: TroopType = Field(..., description="Type of troop")
+    home_id: str = Field(..., description="ID of the home village")
+    quantity: int = Field(..., description="Number of troops")
+    location: Location = Field(..., description="Current location of the troop")
+    # Optional fields only for current user's troops
+    mode: Optional[TroopMode] = Field(None, description="Current mode of the troop (only for owned troops)")
+    backpack: Optional[Resources] = Field(None, description="Resources being carried (only for owned troops)")
+
+class TroopActionInfo(BaseModel):
+    id: str = Field(..., description="Action ID")
+    troop_id: str = Field(..., description="ID of the troop performing the action")
+    action_type: ActionType = Field(..., description="Type of action being performed")
+    start_location: Location = Field(..., description="Starting location of the action")
+    target_location: Location = Field(..., description="Target location of the action")
+    started_at: str = Field(..., description="When the action started (ISO format)")
+    completion_time: str = Field(..., description="When the action will complete (ISO format)")
+
 class MapInfoResponse(BaseModel):
     map_bounds: MapBounds
     map_size: int
     villages: List[MapVillage]
+    troops: List[TroopInfo] = Field(default_factory=list, description="All troops visible on the map")
+    troop_actions: List[TroopActionInfo] = Field(default_factory=list, description="Active troop actions")
     server_time: str = Field(..., description="Current server time when the request was made")

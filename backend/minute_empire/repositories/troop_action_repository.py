@@ -63,4 +63,13 @@ class TroopActionRepository:
     
     async def mark_processed(self, action_id: str) -> bool:
         """Mark a troop action task as processed"""
-        return await self.update(action_id, {"processed": True}) 
+        return await self.update(action_id, {"processed": True})
+    
+    async def get_all_active(self) -> List[TroopActionTaskInDB]:
+        """Get all active (non-processed) actions"""
+        async with get_db() as db:
+            cursor = db[self.COLLECTION].find({"processed": False})
+            active_actions = []
+            async for doc in cursor:
+                active_actions.append(TroopActionTaskInDB(**doc))
+            return active_actions 
