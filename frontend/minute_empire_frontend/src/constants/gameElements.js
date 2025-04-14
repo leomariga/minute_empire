@@ -223,6 +223,86 @@ export const RESOURCES = {
   }
 };
 
+// Troop types with standardized properties
+export const TROOP_TYPES = {
+  MILITIA: {
+    id: 'militia',
+    name: 'Militia',
+    description: 'Basic infantry unit with balanced offense and defense',
+    icon: 'mdi-sword',
+    color: '#f44336', // Red
+    category: 'military'
+  },
+  ARCHER: {
+    id: 'archer',
+    name: 'Archer',
+    description: 'Ranged unit with good offense but weak defense',
+    icon: 'mdi-bow-arrow',
+    color: '#9c27b0', // Purple
+    category: 'military'
+  },
+  LIGHT_CAVALRY: {
+    id: 'light_cavalry',
+    name: 'Light Cavalry',
+    description: 'Fast moving mounted unit with strong offense',
+    icon: 'mdi-horse',
+    color: '#8d6e63', // Brown
+    category: 'military'
+  },
+  PIKEMAN: {
+    id: 'pikeman',
+    name: 'Pikeman',
+    description: 'Anti-cavalry unit with strong defense',
+    icon: 'mdi-spear',
+    color: '#03a9f4', // Light blue
+    category: 'military'
+  }
+};
+
+// Troop status types with standardized properties
+export const TROOP_STATUS = {
+  IDLE: {
+    id: 'idle',
+    name: 'Idle',
+    description: 'Troop is not engaged in any action',
+    icon: 'mdi-clock-outline',
+    color: '#757575', // Gray
+    actionText: 'Standing by'
+  },
+  MOVE: {
+    id: 'move',
+    name: 'Move',
+    description: 'Troop is moving to a destination',
+    icon: 'mdi-map-marker-path',
+    color: '#2196f3', // Blue
+    actionText: 'Moving to destination'
+  },
+  ATTACK: {
+    id: 'attack',
+    name: 'Attack',
+    description: 'Troop is attacking a target',
+    icon: 'mdi-sword-cross',
+    color: '#f44336', // Red
+    actionText: 'Attacking target'
+  },
+  DEFEND: {
+    id: 'defend',
+    name: 'Defend',
+    description: 'Troop is defending a position',
+    icon: 'mdi-shield',
+    color: '#ff9800', // Orange
+    actionText: 'Defending position'
+  },
+  RETURN: {
+    id: 'return',
+    name: 'Return',
+    description: 'Troop is returning to home village',
+    icon: 'mdi-home-import-outline',
+    color: '#4caf50', // Green
+    actionText: 'Returning to home village'
+  }
+};
+
 // UI Colors for consistent styling across components
 export const UI_COLORS = {
   // Background colors
@@ -412,4 +492,90 @@ export function getBuildingImageRef(buildingId) {
   const building = getBuildingInfo(buildingId);
   const imageName = building ? building.image : 'logo.png';
   return GAME_IMAGES[imageName] || GAME_IMAGES['logo.png'];
+}
+
+// Get troop info by ID (case insensitive)
+export function getTroopInfo(troopId) {
+  if (!troopId) return null;
+  
+  const normalizedId = troopId.toUpperCase();
+  return TROOP_TYPES[normalizedId] || null;
+}
+
+// Get troop status info by ID (case insensitive)
+export function getTroopStatusInfo(statusId) {
+  if (!statusId) return TROOP_STATUS.IDLE;
+  
+  const normalizedId = statusId.toUpperCase();
+  return TROOP_STATUS[normalizedId] || null;
+}
+
+// Get troop icon by ID
+export function getTroopIcon(troopId) {
+  const troop = getTroopInfo(troopId);
+  return troop ? troop.icon : 'mdi-help-circle';
+}
+
+// Get troop status icon by ID
+export function getTroopStatusIcon(statusId) {
+  const status = getTroopStatusInfo(statusId);
+  return status ? status.icon : TROOP_STATUS.IDLE.icon;
+}
+
+// Get troop color with optional opacity
+export function getTroopColor(troopId, opacity = 1) {
+  const troop = getTroopInfo(troopId);
+  if (!troop) return `rgba(0, 0, 0, ${opacity})`;
+  
+  // Convert hex to rgba
+  const hex = troop.color;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+}
+
+// Get troop status color with optional opacity
+export function getTroopStatusColor(statusId, opacity = 1) {
+  const status = getTroopStatusInfo(statusId);
+  if (!status) return `rgba(117, 117, 117, ${opacity})`; // Default to gray
+  
+  // Convert hex to rgba
+  const hex = status.color;
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+}
+
+// Get a proper display name for a troop type
+export function getTroopTypeName(troopType) {
+  if (!troopType) return 'Unknown Troop';
+  
+  // Try to get name from TROOP_TYPES
+  const troopInfo = getTroopInfo(troopType);
+  if (troopInfo) return troopInfo.name;
+  
+  // Fallback to formatting the string
+  return troopType
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, l => l.toUpperCase());
+}
+
+// Convert troop mode to proper display format
+export function getTroopStatus(mode) {
+  if (!mode) return TROOP_STATUS.IDLE.name;
+  
+  const statusInfo = getTroopStatusInfo(mode);
+  return statusInfo ? statusInfo.name : mode;
+}
+
+// Get a descriptive action status message for a troop mode
+export function getTroopActionDescription(mode) {
+  if (!mode) return '';
+  
+  const statusInfo = getTroopStatusInfo(mode);
+  return statusInfo ? statusInfo.actionText : mode;
 } 

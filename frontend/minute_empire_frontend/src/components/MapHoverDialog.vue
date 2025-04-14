@@ -16,6 +16,29 @@
         <div class="color-accent" :style="accentStyle"></div>
       </div>
 
+      <!-- Troop Info Header -->
+      <div v-else-if="type === 'troop'" class="d-flex align-center mb-2">
+        <v-icon
+          :color="getTroopColor"
+          class="mr-2"
+          size="28"
+        >
+          {{ getTroopIcon }}
+        </v-icon>
+        <span class="text-subtitle-1 font-weight-bold">
+          {{ getTroopTitle }}
+        </span>
+        <v-chip
+          v-if="data.groupCount > 1"
+          size="small"
+          class="ml-2"
+          color="primary"
+          label
+        >
+          {{ data.groupCount }}
+        </v-chip>
+      </div>
+
       <!-- Resource/Building Info Header -->
       <div v-else class="d-flex align-center mb-2">
         <v-icon
@@ -46,6 +69,45 @@
           </div>
         </template>
 
+        <!-- Troop Info Content -->
+        <template v-else-if="type === 'troop'">
+          <div class="d-flex justify-space-between align-center mb-1">
+            <span class="text-caption text-grey">Quantity:</span>
+            <span class="text-caption font-weight-medium">{{ data.quantity }}</span>
+          </div>
+          
+          <div class="d-flex justify-space-between align-center mb-1">
+            <span class="text-caption text-grey">Home:</span>
+            <span class="text-caption font-weight-medium">{{ data.homeVillageName }}</span>
+          </div>
+          
+          <div class="d-flex justify-space-between align-center mb-1">
+            <span class="text-caption text-grey">Owner:</span>
+            <span class="text-caption font-weight-medium">{{ data.ownerFamily }}</span>
+          </div>
+          
+          <div v-if="data.totalTroops" class="d-flex justify-space-between align-center mb-1">
+            <span class="text-caption text-grey">Total troops:</span>
+            <span class="text-caption font-weight-medium">{{ data.totalTroops }}</span>
+          </div>
+          
+          <div v-if="data.mode" class="d-flex justify-space-between align-center mb-1">
+            <span class="text-caption text-grey">Mode:</span>
+            <span class="text-caption font-weight-medium">{{ formatTroopMode(data.mode) }}</span>
+          </div>
+          
+          <div v-if="data.backpack && hasResources(data.backpack)" class="d-flex flex-column mt-1">
+            <span class="text-caption text-grey mb-1">Carrying:</span>
+            <div class="d-flex flex-wrap">
+              <div v-for="(amount, resource) in data.backpack" :key="resource" class="mr-2 mb-1" v-if="amount > 0">
+                <v-chip size="x-small" :color="getResourceChipColor(resource)">
+                  {{ resource }}: {{ amount }}
+                </v-chip>
+              </div>
+            </div>
+          </div>
+        </template>
+
         <!-- Resource/Building Info Content -->
         <template v-else>
           <div class="d-flex justify-space-between align-center mb-1">
@@ -72,7 +134,19 @@
 </template>
 
 <script>
-import { getResourceColor, getResourceIcon, getBuildingColor, getBuildingIcon, UI_COLORS } from '@/constants/gameElements';
+import { getResourceColor, getResourceIcon, getBuildingColor, getBuildingIcon, getTroopIcon, getTroopInfo, UI_COLORS } from '@/constants/gameElements';
+
+// Troop Mode Mapping
+const TROOP_MODES = {
+  IDLE: 'Idle',
+  DEFENDING: 'Defending',
+  TRAVELING: 'Traveling',
+  ATTACKING: 'Attacking',
+  RETURNING: 'Returning',
+  SCOUTING: 'Scouting',
+  GATHERING: 'Gathering',
+  SETTLING: 'Settling'
+};
 
 export default {
   name: 'MapHoverDialog',
@@ -93,7 +167,7 @@ export default {
     type: {
       type: String,
       required: true,
-      validator: value => ['resource', 'building', 'village'].includes(value)
+      validator: value => ['resource', 'building', 'village', 'troop'].includes(value)
     }
   },
   
@@ -151,6 +225,24 @@ export default {
         return getBuildingIcon(this.data.type);
       }
     },
+    
+    // Troop-specific computed properties
+    getTroopTitle() {
+      if (!this.data.type) return 'Unknown Troop';
+      
+      // Try to get the name from our troop info definitions
+      const troopInfo = getTroopInfo(this.data.type);
+      return troopInfo ? troopInfo.name : this.data.type.charAt(0).toUpperCase() + this.data.type.slice(1).toLowerCase();
+    },
+    
+    getTroopIcon() {
+      if (!this.data.type) return 'mdi-help-circle';
+      return getTroopIcon(this.data.type);
+    },
+    
+    getTroopColor() {
+      return this.data.isOwned ? 'rgba(0, 0, 0, 0.8)' : 'rgba(244, 67, 54, 0.8)';
+    },
 
     accentStyle() {
       if (this.type === 'village' && this.data.user_info?.color) {
@@ -159,6 +251,29 @@ export default {
         }
       }
       return {}
+    }
+  },
+
+  methods: {
+    formatTroopMode(mode) {
+      if (!mode) return 'Unknown';
+      const upperMode = mode.toUpperCase();
+      return TROOP_MODES[upperMode] || mode;
+    },
+    
+    hasResources(backpack) {
+      if (!backpack) return false;
+      return Object.values(backpack).some(amount => amount > 0);
+    },
+    
+    getResourceChipColor(resource) {
+      switch (resource.toLowerCase()) {
+        case 'wood': return 'green';
+        case 'food': return 'amber';
+        case 'stone': return 'grey';
+        case 'iron': return 'blue-grey';
+        default: return 'primary';
+      }
     }
   },
 

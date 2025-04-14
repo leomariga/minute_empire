@@ -1,6 +1,6 @@
 from datetime import timedelta
-from typing import Dict
-from minute_empire.schemas.schemas import TroopType
+from typing import Dict, List, Tuple
+from minute_empire.schemas.schemas import TroopType, Location
 
 class Troop:
     """Domain class for troops with game logic"""
@@ -30,3 +30,108 @@ class Troop:
         """Calculate the total training time for a given troop type and quantity"""
         base_time = Troop.TRAINING_TIMES[troop_type]
         return base_time * quantity 
+        
+    @staticmethod
+    def get_valid_move_spots(troop_type: TroopType, current_location: Location) -> List[Dict[str, int]]:
+        """
+        Returns a list of valid locations where the troop can move based on its type
+        
+        Args:
+            troop_type: The type of the troop
+            current_location: The current location of the troop
+            
+        Returns:
+            List of dictionaries with x, y coordinates representing valid move spots
+        """
+        x, y = current_location.x, current_location.y
+        valid_spots = []
+        
+        # Adjacent cells (orthogonal)
+        orthogonal = [(x, y+1), (x, y-1), (x+1, y), (x-1, y)]
+        
+        # Diagonal cells
+        diagonal = [(x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1)]
+        
+        # L-shaped cells (knight's move)
+        l_shaped = [
+            (x+2, y+1), (x+2, y-1),
+            (x-2, y+1), (x-2, y-1),
+            (x+1, y+2), (x-1, y+2),
+            (x+1, y-2), (x-1, y-2)
+        ]
+        
+        if troop_type == TroopType.MILITIA:
+            # Militia: Adjacent cells including diagonals
+            valid_coords = orthogonal + diagonal
+            
+        elif troop_type == TroopType.ARCHER:
+            # Archer: Adjacent cells excluding diagonals
+            valid_coords = orthogonal
+            
+        elif troop_type == TroopType.LIGHT_CAVALRY:
+            # Light Cavalry: L-shaped movement like knight in chess
+            valid_coords = l_shaped
+            
+        elif troop_type == TroopType.PIKEMAN:
+            # Pikeman: Adjacent cells including diagonals + L-shaped cells
+            valid_coords = orthogonal + diagonal + l_shaped
+            
+        # Convert to format expected by API
+        for coord_x, coord_y in valid_coords:
+            valid_spots.append({"x": coord_x, "y": coord_y})
+            
+        return valid_spots
+        
+    @staticmethod
+    def get_valid_attack_spots(troop_type: TroopType, current_location: Location) -> List[Dict[str, int]]:
+        """
+        Returns a list of valid locations where the troop can attack based on its type
+        
+        Args:
+            troop_type: The type of the troop
+            current_location: The current location of the troop
+            
+        Returns:
+            List of dictionaries with x, y coordinates representing valid attack spots
+        """
+        x, y = current_location.x, current_location.y
+        valid_spots = []
+        
+        # Current cell
+        current = [(x, y)]
+        
+        # Adjacent cells (orthogonal)
+        orthogonal = [(x, y+1), (x, y-1), (x+1, y), (x-1, y)]
+        
+        # Diagonal cells
+        diagonal = [(x+1, y+1), (x+1, y-1), (x-1, y+1), (x-1, y-1)]
+        
+        # L-shaped cells (knight's move)
+        l_shaped = [
+            (x+2, y+1), (x+2, y-1),
+            (x-2, y+1), (x-2, y-1),
+            (x+1, y+2), (x-1, y+2),
+            (x+1, y-2), (x-1, y-2)
+        ]
+        
+        if troop_type == TroopType.MILITIA:
+            # Militia: Only current cell (must move to attack)
+            valid_coords = current
+            
+        elif troop_type == TroopType.ARCHER:
+            # Archer: Adjacent cells including diagonals
+            valid_coords = orthogonal + diagonal
+            
+        elif troop_type == TroopType.LIGHT_CAVALRY:
+            # Light Cavalry: Only current cell (must move to attack)
+            valid_coords = current
+            
+        elif troop_type == TroopType.PIKEMAN:
+            # Pikeman: L-shaped cells + current cell
+            valid_coords = current + l_shaped
+            
+        # Convert to format expected by API
+        for coord_x, coord_y in valid_coords:
+            valid_spots.append({"x": coord_x, "y": coord_y})
+            
+        return valid_spots 

@@ -5,7 +5,7 @@
     :max-width="isMobile ? '100%' : '450'"
     :fullscreen="isMobile"
     transition="dialog-bottom-transition"
-    @click:outside="$emit('close')"
+    @click:outside="closeDialog"
   >
     <v-card class="selection-dialog">
       <!-- Header -->
@@ -24,7 +24,7 @@
         <slot name="header-actions"></slot>
         <v-btn
           icon
-          @click="$emit('close')"
+          @click="closeDialog"
           class="ml-2"
         >
           <v-icon>mdi-close</v-icon>
@@ -67,9 +67,11 @@
           
           <!-- Badges overlaid on image -->
           <div class="badges-overlay">
-            <div class="badge slot-badge">
-              <v-icon size="14" color="white">mdi-map-marker</v-icon>
-              <span>Slot {{ slotId }}</span>
+            <div v-if="showSlotBadge" class="badge slot-badge">
+              <v-icon size="14" color="white" :class="{'mr-1': !isTroopDialog}">
+                {{ isTroopDialog ? 'mdi-target' : 'mdi-map-marker' }}
+              </v-icon>
+              <span>{{ isTroopDialog ? 'Target ' + slotId : 'Slot ' + slotId }}</span>
             </div>
             <slot name="image-badges"></slot>
           </div>
@@ -102,8 +104,8 @@ export default {
       required: true
     },
     slotId: {
-      type: Number,
-      required: true
+      type: [Number, String],
+      default: ''
     },
     title: {
       type: String,
@@ -124,6 +126,10 @@ export default {
     imageUrl: {
       type: String,
       default: ''
+    },
+    isTroopDialog: {
+      type: Boolean,
+      default: false
     }
   },
 
@@ -138,6 +144,10 @@ export default {
   computed: {
     isMobile() {
       return this.windowWidth < 600
+    },
+    
+    showSlotBadge() {
+      return this.slotId !== null && this.slotId !== undefined && this.slotId !== '';
     }
   },
   
@@ -152,6 +162,12 @@ export default {
   methods: {
     handleResize() {
       this.windowWidth = window.innerWidth
+    },
+    
+    closeDialog() {
+      console.log('BaseSelectionDialog: closeDialog called');
+      this.$emit('update:show', false);
+      this.$emit('close');
     }
   }
 }
@@ -214,5 +230,9 @@ export default {
   .selection-dialog {
     border-radius: 0;
   }
+}
+
+.mr-1 {
+  margin-right: 4px;
 }
 </style> 

@@ -94,6 +94,20 @@
         <!-- Future expansion slot for additional information -->
       </template>
     </map-selection-dialog>
+
+    <!-- Troop Action Dialog -->
+    <troop-action-dialog
+      v-model:show="troopActionDialog.show"
+      :troop="troopActionDialog.troop"
+      :target-location="troopActionDialog.targetLocation"
+      :can-move="troopActionDialog.canMove"
+      :can-attack="troopActionDialog.canAttack"
+      :village="troopActionDialog.homeVillage"
+      :estimated-time="troopActionDialog.estimatedTime"
+      @success="showMessage($event, 'success')"
+      @error="showMessage($event, 'error')"
+      @action-executed="handleTroopActionExecuted"
+    />
   </v-container>
 </template>
 
@@ -113,18 +127,25 @@ import { Style, Fill, Stroke, Text, Circle, Icon } from 'ol/style';
 import { defaults as defaultControls } from 'ol/control';
 import MapHoverDialog from '@/components/MapHoverDialog.vue'
 import MapSelectionDialog from '@/components/selection_dialogs/MapSelectionDialog.vue'
+import TroopActionDialog from '@/components/selection_dialogs/TroopActionDialog.vue'
 import VillageResourcesDisplay from '@/components/VillageResourcesDisplay.vue'
 import ConstructionTasksDisplay from '@/components/ConstructionTasksDisplay.vue'
-import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon, getResourceInfo, getBuildingInfo, TASK_TYPES } from '@/constants/gameElements';
+import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon, getResourceInfo, getBuildingInfo, getTroopInfo, getTroopIcon, getTroopColor, TASK_TYPES, TROOP_TYPES } from '@/constants/gameElements';
+import { getValidMoveSpots, getValidAttackSpots } from '@/utils/troopMovement';
 
 // Set up geographic coordinates
 useGeographic();
+
+// Constants for troop display zoom thresholds
+const ZOOM_TROOP_THRESHOLD_ON = 9; // Show troops when zoom is below this value
+const ZOOM_TROOP_THRESHOLD_OFF = 0.5; // Hide troops when zoom is below this value
 
 export default {
   name: 'MapViewOL',
   components: {
     MapHoverDialog,
     MapSelectionDialog,
+    TroopActionDialog,
     VillageResourcesDisplay,
     ConstructionTasksDisplay
   },
@@ -143,6 +164,9 @@ export default {
       },
       mapSize: 31,
       villages: [],
+      troops: [],
+      zoomTroopThresholdOn: ZOOM_TROOP_THRESHOLD_ON,
+      zoomTroopThresholdOff: ZOOM_TROOP_THRESHOLD_OFF,
       currentCoords: null,
       zoomLevel: 1,
       windowWidth: window.innerWidth,
@@ -150,6 +174,12 @@ export default {
       villageLayer: null,
       subgridLayer: null,
       cityLayer: null,
+      troopLayer: null,
+      // New state for troop selection
+      selectedTroop: null,
+      validPositionsLayer: null,
+      validMoveSpots: [],
+      validAttackSpots: [],
       currentSubgridCell: null,
       currentCityCell: null,
       resourceIcons: {
@@ -190,7 +220,17 @@ export default {
       villageRefreshTimer: null,
       lastVillageRefresh: 0,
       taskCompletionTimer: null,
-      iconCache: {}
+      iconCache: {},
+      // Troop action dialog state
+      troopActionDialog: {
+        show: false,
+        troop: null,
+        targetLocation: { x: 0, y: 0 },
+        canMove: false,
+        canAttack: false,
+        homeVillage: null,
+        estimatedTime: 0
+      },
     };
   },
   
@@ -207,7 +247,11 @@ export default {
       return;
     }
     
-    await this.fetchMapData();
+    // Clear the icon cache on component creation
+    this.clearIconCache();
+    
+    // Fetch map data
+    this.fetchMapData();
     
     // Add window resize handler
     window.addEventListener('resize', this.handleResize);
@@ -216,10 +260,19 @@ export default {
   
   mounted() {
     console.log('Component mounted');
-    this.initializeMap();
     
-    // Start checking for focused village
-    this.startFocusCheck();
+    // Preload the Material Design Icons font before initializing the map
+    this.preloadMDIFont()
+      .then(() => {
+        console.log('Fonts loaded, initializing map');
+        this.initializeMap();
+        this.startFocusCheck();
+      })
+      .catch(error => {
+        console.error('Font preloading failed, initializing map anyway:', error);
+        this.initializeMap();
+        this.startFocusCheck();
+      });
   },
   
   beforeDestroy() {
@@ -246,6 +299,46 @@ export default {
   },
   
   methods: {
+    // Simplified font preloading mechanism
+    preloadMDIFont() {
+      return new Promise((resolve) => {
+        console.log('Preloading Material Design Icons font...');
+        
+        // Create a test element with the MDI font
+        const testElement = document.createElement('i');
+        testElement.className = 'mdi mdi-check';
+        testElement.style.position = 'absolute';
+        testElement.style.visibility = 'hidden';
+        testElement.style.fontFamily = '"Material Design Icons"';
+        document.body.appendChild(testElement);
+        
+        const fontFaceObserver = () => {
+          const style = window.getComputedStyle(testElement, ':before');
+          const content = style.getPropertyValue('content');
+          
+          if (content && content !== 'none') {
+            document.body.removeChild(testElement);
+            console.log('MDI font loaded successfully');
+            resolve();
+          } else {
+            console.log('Waiting for MDI font to load...');
+            setTimeout(fontFaceObserver, 100);
+          }
+        };
+        
+        fontFaceObserver();
+        
+        // Set a maximum timeout so we don't wait forever
+        setTimeout(() => {
+          if (document.body.contains(testElement)) {
+            document.body.removeChild(testElement);
+            console.warn('Font loading timed out, continuing anyway');
+            resolve();
+          }
+        }, 3000);
+      });
+    },
+    
     startFocusCheck() {
       // Check for focused village every 500ms
       this.focusCheckTimer = setInterval(() => {
@@ -280,6 +373,10 @@ export default {
               ...village,
               resource_fields: village.resource_fields || Array(20).fill(null)
             }));
+
+            // Update troops
+            this.troops = data.troops || [];
+            this.updateTroopLayer();
             
             // Update the focused village with fresh data
             const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
@@ -386,10 +483,14 @@ export default {
           resource_fields: village.resource_fields || Array(20).fill(null) // Initialize with 20 null slots if not present
         }));
         
+        // Set troops
+        this.troops = data.troops || [];
+        
         console.log('Map data fetched:', {
           bounds: this.mapBounds,
           size: this.mapSize,
           villages: this.villages.length,
+          troops: this.troops.length,
           sampleVillage: this.villages[0] // Log first village for debugging
         });
         
@@ -432,10 +533,31 @@ export default {
         style: this.getDefaultStyle()
       });
       
+      // Create the troop layer - add it last so it appears on top
+      this.troopLayer = new VectorLayer({
+        source: new VectorSource(),
+        style: this.getDefaultStyle(),
+        zIndex: 100 // Make sure troops are on top
+      });
+      
+      // Create the valid positions layer
+      this.validPositionsLayer = new VectorLayer({
+        source: new VectorSource(),
+        style: this.getDefaultStyle(),
+        zIndex: 90 // Below troops but above other layers
+      });
+      
       // Create the map with adjusted view settings
       this.map = new Map({
         target: this.$refs.mapContainer,
-        layers: [this.gridLayer, this.villageLayer, this.subgridLayer, this.cityLayer],
+        layers: [
+          this.gridLayer, 
+          this.villageLayer, 
+          this.subgridLayer, 
+          this.cityLayer, 
+          this.validPositionsLayer, // Add valid positions layer
+          this.troopLayer
+        ],
         view: new View({
           center: [0, 0],
           zoom: 1,
@@ -463,6 +585,7 @@ export default {
       this.map.updateSize();
     },
     
+    // Simplify this method to just draw the grid without a delay for troops
     drawGrid() {
       if (!this.map) return;
       
@@ -471,6 +594,7 @@ export default {
       this.villageLayer.getSource().clear();
       this.subgridLayer.getSource().clear();
       this.cityLayer.getSource().clear();
+      this.troopLayer.getSource().clear();
       
       // Draw the main grid
       for (let x = this.mapBounds.x_min; x <= this.mapBounds.x_max; x++) {
@@ -484,8 +608,207 @@ export default {
         this.drawVillage(village);
       });
       
+      // Draw troops immediately - fonts should be loaded by now
+      this.updateTroopLayer();
+      
       // Update subgrids and city grids based on zoom level
       this.updateSubgrids();
+    },
+
+    // New method to update and display troops
+    updateTroopLayer() {
+      if (!this.map || !this.troops || !this.troopLayer) return;
+      
+      const zoom = this.map.getView().getZoom();
+      
+      // Clear existing troop layer
+      this.troopLayer.getSource().clear();
+      
+      // Only show troops when zoom is between thresholds
+      if (zoom <= this.zoomTroopThresholdOn && zoom >= this.zoomTroopThresholdOff) {
+        // Group troops by cell location to handle multiple troops in the same cell
+        const troopsByCell = this.groupTroopsByCell();
+        
+        // Draw each group of troops
+        Object.entries(troopsByCell).forEach(([cellKey, troopsInCell]) => {
+          this.drawTroopsInCell(troopsInCell);
+        });
+        
+        // If a troop is selected, re-highlight it and redisplay valid positions
+        if (this.selectedTroop) {
+          // Redisplay valid positions
+          this.displayValidPositions();
+          
+          // Re-highlight the selected troop
+          this.highlightSelectedTroop();
+        }
+      }
+    },
+    
+    // Group troops by cell location for easier rendering
+    groupTroopsByCell() {
+      const troopsByCell = {};
+      
+      this.troops.forEach(troop => {
+        const cellKey = `${troop.location.x},${troop.location.y}`;
+        
+        if (!troopsByCell[cellKey]) {
+          troopsByCell[cellKey] = [];
+        }
+        
+        troopsByCell[cellKey].push(troop);
+      });
+      
+      return troopsByCell;
+    },
+    
+    // Draw a group of troops in the same cell
+    drawTroopsInCell(troopsInCell) {
+      if (!troopsInCell || troopsInCell.length === 0) return;
+      
+      // Use the location of the first troop (all troops in this group are in the same cell)
+      const cellX = troopsInCell[0].location.x;
+      const cellY = troopsInCell[0].location.y;
+      
+      // If there's only one troop, draw it in the center
+      if (troopsInCell.length === 1) {
+        this.drawTroop(troopsInCell[0], 0.5, 0.5);
+        return;
+      }
+      
+      // If there are multiple troops, arrange them in a grid within the cell
+      const maxTroopsPerRow = Math.ceil(Math.sqrt(troopsInCell.length));
+      const cellSize = 1 / maxTroopsPerRow;
+      
+      troopsInCell.forEach((troop, index) => {
+        const row = Math.floor(index / maxTroopsPerRow);
+        const col = index % maxTroopsPerRow;
+        
+        // Calculate position within the cell
+        const offsetX = (col + 0.5) * cellSize;
+        const offsetY = (row + 0.5) * cellSize;
+        
+        this.drawTroop(troop, offsetX, offsetY, cellSize);
+      });
+    },
+    
+    // Draw a single troop
+    drawTroop(troop, offsetX, offsetY, scale = 1) {
+      // Default values for color and ownership
+      let ownerColor = 'rgba(0, 0, 0, 0.8)'; // Default black for owned troops
+      let isOwned = false;
+      
+      // Find home village to determine ownership
+      const homeVillage = this.villages.find(v => v.id === troop.home_id);
+      
+      // If we found a home village, check if it's owned by the player
+      if (homeVillage) {
+        isOwned = homeVillage.is_owned; // This is all we need to determine ownership
+        
+        // For enemy troops, use the owner's color
+        if (!isOwned && homeVillage.user_info && homeVillage.user_info.color) {
+          const hex = homeVillage.user_info.color;
+          const r = parseInt(hex.slice(1, 3), 16);
+          const g = parseInt(hex.slice(3, 5), 16);
+          const b = parseInt(hex.slice(5, 7), 16);
+          ownerColor = `rgba(${r}, ${g}, ${b}, 0.8)`;
+        }
+      }
+      
+      // Get troop icon and type info using helpers
+      // Note: Supported troop types are militia, archer, light_cavalry, pikeman
+      const troopInfo = getTroopInfo(troop.type);
+      const iconName = getTroopIcon(troop.type);
+      const troopColor = isOwned ? 'rgba(0, 0, 0, 0.8)' : ownerColor;
+      
+      // Create troop feature
+      const troopPosition = [
+        troop.location.x + offsetX, 
+        troop.location.y + offsetY
+      ];
+      
+      const troopFeature = new Feature({
+        geometry: new Point(troopPosition),
+        type: 'troop',
+        troop: troop
+      });
+      
+      // Calculate appropriate size based on scale
+      const baseSize = 25 * scale; // Increased from 8 to 12
+      const iconSize = 50 * scale; // Increased from 12 to 20
+      
+      try {
+        // Create icon data URL
+        const iconDataURL = this.createIconDataURL(iconName, iconSize, isOwned ? 'rgba(0, 0, 0, 0.8)' : troopColor);
+        
+        // Create background circle style
+        const circleStyle = new Style({
+          image: new Circle({
+            radius: baseSize,
+            fill: new Fill({
+              color: isOwned ? 'rgba(139, 195, 74, 0.4)' : 'rgba(244, 67, 54, 0.4)',
+            }),
+          })
+        });
+        
+        // Create icon style
+        const iconStyle = new Style({
+          image: new Icon({
+            src: iconDataURL,
+            scale: 1 // Slightly increase icon scale to make it more visible
+          })
+        });
+        
+        // Create quantity text style (bottom right)
+        const quantityStyle = new Style({
+          text: new Text({
+            text: troop.quantity.toString(),
+            offsetX: baseSize * 0.7,
+            offsetY: baseSize * 0.7,
+            font: `${Math.max(10, 20 * scale)}px Arial`, // Larger font for better readability
+            fill: new Fill({
+              color: 'rgba(255, 255, 255, 0.9)'
+            }),
+            stroke: new Stroke({
+              color: 'rgba(0, 0, 0, 0.8)',
+              width: 2
+            })
+          })
+        });
+        
+        // Set combined styles
+        troopFeature.setStyle([circleStyle, iconStyle, quantityStyle]);
+        
+      } catch (error) {
+        console.error('Error creating troop style:', error);
+        
+        // Fallback style if icon creation fails
+        troopFeature.setStyle(new Style({
+          image: new Circle({
+            radius: baseSize,
+            fill: new Fill({
+              color: troopColor
+            }),
+            stroke: new Stroke({
+              color: 'rgba(0, 0, 0, 0.5)',
+              width: 1.5
+            })
+          }),
+          text: new Text({
+            text: `${troop.type.charAt(0)}${troop.quantity}`,
+            fill: new Fill({
+              color: 'rgba(255, 255, 255, 0.9)'
+            }),
+            stroke: new Stroke({
+              color: 'rgba(0, 0, 0, 0.8)',
+              width: 2
+            })
+          })
+        }));
+      }
+      
+      // Add feature to troop layer
+      this.troopLayer.getSource().addFeature(troopFeature);
     },
     
     drawGridCell(x, y) {
@@ -686,8 +1009,9 @@ export default {
       }
     },
     
+    // Simplified icon URL creator that doesn't need fallbacks
     createIconDataURL(iconName, size = 24, color = '#ffffff') {
-      // Create a unique cache key based on icon, size and color
+      // Create a unique cache key
       const cacheKey = `${iconName}_${size}_${color}`;
       
       // Return from cache if exists
@@ -695,58 +1019,84 @@ export default {
         return this.iconCache[cacheKey];
       }
       
-      // Create canvas element
-      const canvas = document.createElement('canvas');
-      const padding = 4; // Padding around the icon
-      canvas.width = size + padding * 2;
-      canvas.height = size + padding * 2;
-      const ctx = canvas.getContext('2d');
-      
-      // Set up temporary div to measure icon dimensions
-      const tempDiv = document.createElement('div');
-      tempDiv.style.position = 'absolute';
-      tempDiv.style.visibility = 'hidden';
-      tempDiv.style.fontSize = `${size}px`;
-      
-      // Create icon element
-      const iconElement = document.createElement('i');
-      iconElement.className = `mdi ${iconName}`;
-      iconElement.style.color = color;
-      iconElement.style.fontSize = `${size}px`;
-      
-      // Add to DOM temporarily to get measurements
-      tempDiv.appendChild(iconElement);
-      document.body.appendChild(tempDiv);
-      
-      // Get material design icon content
-      const iconStyle = window.getComputedStyle(iconElement, ':before');
-      const iconContent = iconStyle.getPropertyValue('content').replace(/"/g, '');
-      const iconFont = iconStyle.getPropertyValue('font-family');
-      
-      // Set up canvas context
-      ctx.font = `${size}px ${iconFont}`;
-      ctx.fillStyle = color;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      
-      // Draw icon on canvas
-      ctx.fillText(iconContent, canvas.width / 2, canvas.height / 2);
-      
-      // Clean up
-      document.body.removeChild(tempDiv);
-      
-      // Convert canvas to data URL
-      const dataURL = canvas.toDataURL('image/png');
-      
-      // Cache the result
-      this.iconCache[cacheKey] = dataURL;
-      
-      return dataURL;
+      try {
+        // Create a temporary element to render the icon
+        const tempDiv = document.createElement('div');
+        tempDiv.style.position = 'absolute';
+        tempDiv.style.visibility = 'hidden';
+        
+        // Create icon element
+        const iconElement = document.createElement('i');
+        iconElement.className = `mdi ${iconName}`;
+        iconElement.style.color = color;
+        iconElement.style.fontSize = `${size}px`;
+        
+        // Add to DOM temporarily to get measurements
+        tempDiv.appendChild(iconElement);
+        document.body.appendChild(tempDiv);
+        
+        // Get the icon's content (unicode character)
+        const iconStyle = window.getComputedStyle(iconElement, ':before');
+        const iconContent = iconStyle.getPropertyValue('content').replace(/"/g, '');
+        
+        // Create canvas for drawing
+        const canvas = document.createElement('canvas');
+        const padding = 6;
+        canvas.width = size + padding * 2;
+        canvas.height = size + padding * 2;
+        const ctx = canvas.getContext('2d');
+        
+        // Clear background
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Set up canvas context
+        ctx.font = `${size}px "Material Design Icons"`;
+        ctx.fillStyle = color;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        
+        // Add shadow for better visibility
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.5)';
+        ctx.shadowBlur = 3;
+        ctx.shadowOffsetX = 1;
+        ctx.shadowOffsetY = 1;
+        
+        // Draw the icon to the canvas
+        ctx.fillText(iconContent, canvas.width / 2, canvas.height / 2);
+        
+        // Clean up
+        document.body.removeChild(tempDiv);
+        
+        // Convert to data URL
+        const dataURL = canvas.toDataURL('image/png');
+        
+        // Cache the result
+        this.iconCache[cacheKey] = dataURL;
+        
+        return dataURL;
+      } catch (error) {
+        console.error('Error creating icon:', error);
+        
+        // In case of error, create a simple colored circle as fallback
+        const canvas = document.createElement('canvas');
+        const size2 = size + 12;
+        canvas.width = size2;
+        canvas.height = size2;
+        const ctx = canvas.getContext('2d');
+        
+        // Draw circle
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(size2/2, size2/2, size2/2, 0, Math.PI * 2);
+        ctx.fill();
+        
+        const dataURL = canvas.toDataURL('image/png');
+        this.iconCache[cacheKey] = dataURL;
+        return dataURL;
+      }
     },
     
     createResourceFieldStyle(resourceField, x, y, opacity) {
-
-
       const baseSize = 11;
       const level = resourceField.level;
       const zoom = this.map.getView().getZoom();
@@ -773,8 +1123,6 @@ export default {
         // Get resource icon name and colors
         const iconName = getResourceIcon(resourceField.type);
         const circleColor = this.getResourceColor(resourceField.type, 0.8);
-        
-
         
         let displayIconName;
         let iconColor;
@@ -1083,7 +1431,18 @@ export default {
           this.lastPointerPosition = { x: gridX, y: gridY };
           this.currentCoords = { x: gridX, y: gridY };
 
-          // Find the village at the current position using cached positions
+          // First check if hovering over troops (which are visible at lower zoom levels)
+          const zoom = this.map.getView().getZoom();
+          if (zoom <= this.zoomTroopThresholdOn && zoom >= this.zoomTroopThresholdOff) {
+            const troopsAtPixel = this.getTroopsAtPixel(pixel);
+            if (troopsAtPixel.length > 0) {
+              // Show troop hover dialog (just like other game elements) when mouse is over troops
+              this.showTroopHoverDialog(pixel, troopsAtPixel);
+              return;
+            }
+          }
+
+          // If not hovering over troops, check for villages (which are visible at all zoom levels)
           const village = this.findVillageAtPosition(gridX, gridY);
 
           if (village) {
@@ -1105,11 +1464,57 @@ export default {
               }
             }
           } else {
-            // Clear highlighting if not over a village
+            // Clear highlighting if not over a village or troop
             this.clearHighlighting();
           }
         }
       }, 16); // ~60fps
+    },
+    
+    // Get troops at a specific pixel
+    getTroopsAtPixel(pixel) {
+      const features = this.map.getFeaturesAtPixel(pixel, {
+        layerFilter: layer => layer === this.troopLayer
+      });
+      
+      // Extract troop data from features
+      return features
+        .filter(feature => feature.get('type') === 'troop')
+        .map(feature => feature.get('troop'));
+    },
+    
+    // Show hover dialog for troops
+    showTroopHoverDialog(pixel, troops) {
+      // Get information about the first troop
+      const mainTroop = troops[0];
+      
+      // Find home village for additional information
+      const homeVillage = this.villages.find(v => v.id === mainTroop.home_id);
+      const troopIsOwned = homeVillage ? homeVillage.is_owned : false;
+      
+      // Format information for hover dialog
+      const troopInfo = {
+        type: mainTroop.type,
+        quantity: mainTroop.quantity,
+        homeVillageName: homeVillage ? homeVillage.name : 'Unknown',
+        ownerFamily: homeVillage && homeVillage.user_info ? homeVillage.user_info.family_name : 'Unknown',
+        totalTroops: troops.length > 1 ? troops.reduce((sum, t) => sum + t.quantity, 0) : null,
+        isOwned: troopIsOwned,
+        // Include additional troop details if available and owned
+        mode: troopIsOwned && mainTroop.mode ? mainTroop.mode : null,
+        backpack: troopIsOwned && mainTroop.backpack ? mainTroop.backpack : null,
+        groupCount: troops.length
+      };
+      
+      this.hoverDialog = {
+        show: true,
+        position: {
+          x: pixel[0] + 10, // Offset from cursor
+          y: pixel[1] + 10
+        },
+        data: troopInfo,
+        type: 'troop'
+      };
     },
     
     findVillageAtPosition(gridX, gridY) {
@@ -1194,6 +1599,11 @@ export default {
       this.updateSubgrids();
     },
     
+    hideHoverDialog() {
+      // Hide hover dialog for any element type (village, resource, building, or troop)
+      this.hoverDialog.show = false;
+    },
+    
     handleMapClick(event) {
       // Store the click event for use in handleUpgrade
       this.lastClickEvent = event.originalEvent;
@@ -1205,6 +1615,28 @@ export default {
       const gridX = Math.round(coords[0] * 100) / 100;
       const gridY = Math.round(coords[1] * 100) / 100;
       
+      // Check if a troop is selected and we're clicking on a valid position
+      if (this.selectedTroop) {
+        // Try to handle the click as a valid position click
+        if (this.handleValidPositionClick(gridX, gridY)) {
+          return; // If handled, exit early
+        }
+      }
+      
+      // Check if we clicked on troops first
+      const zoom = this.map.getView().getZoom();
+      if (zoom <= this.zoomTroopThresholdOn && zoom >= this.zoomTroopThresholdOff) {
+        const troopsAtPixel = this.getTroopsAtPixel(pixel);
+        if (troopsAtPixel.length > 0) {
+          this.handleTroopSelection(troopsAtPixel);
+          return;
+        }
+      }
+      
+      // If we didn't click on a troop, clear the current selection
+      this.clearTroopSelection();
+      
+      // Rest of the original click handler for other map elements...
       // Only update if coordinates are within bounds
       if (gridX >= this.mapBounds.x_min && gridX <= this.mapBounds.x_max &&
           gridY >= this.mapBounds.y_min && gridY <= this.mapBounds.y_max) {
@@ -1237,10 +1669,204 @@ export default {
       }
     },
     
+    // Handle troop selection (for future implementation of troop actions)
+    async handleTroopSelection(troops) {
+      // First clear any previous selection
+      this.clearTroopSelection();
+      
+      // Only select the first troop in the array
+      const troop = troops[0];
+      
+      // Check if the troop is owned
+      const homeVillage = this.villages.find(v => v.id === troop.home_id);
+      const isOwned = homeVillage && homeVillage.is_owned;
+      
+      // Only proceed with showing valid positions if the troop is owned
+      if (isOwned) {
+        console.log('Selected your troop:', troop);
+        
+        // Calculate valid positions using our utility functions
+        this.selectedTroop = troop;
+        this.validMoveSpots = getValidMoveSpots(
+          troop.type, 
+          troop.location, 
+          this.mapBounds
+        );
+        this.validAttackSpots = getValidAttackSpots(
+          troop.type, 
+          troop.location, 
+          this.mapBounds
+        );
+        
+        // Display the valid positions on the map
+        this.displayValidPositions();
+        
+        // Highlight the selected troop
+        this.highlightSelectedTroop();
+        
+        this.showMessage(`Selected ${troop.type}`, 'info');
+      } else {
+        console.log('Selected enemy troop:', troop);
+        this.showMessage(`Selected enemy ${troop.type} from ${homeVillage ? homeVillage.name : 'unknown'}`, 'info');
+      }
+    },
+
+    // Display valid move and attack positions on the map
+    displayValidPositions() {
+      // Clear the layer first
+      this.validPositionsLayer.getSource().clear();
+      
+      // Standard colors for consistency with game UI
+      const ownedGreen = 'rgba(139, 195, 74, 0.4)'; // Same green used for owned villages
+      const attackRed = 'rgba(244, 67, 54, 0.8)'; // Bright red for X markers
+      
+      // Display valid move positions (filled green cells)
+      this.validMoveSpots.forEach(spot => {
+        // Create a polygon for the entire cell
+        const cellCoordinates = [
+          [spot.x, spot.y],
+          [spot.x + 1, spot.y],
+          [spot.x + 1, spot.y + 1],
+          [spot.x, spot.y + 1],
+          [spot.x, spot.y]
+        ];
+        
+        const feature = new Feature({
+          geometry: new Polygon([cellCoordinates]),
+          type: 'valid_move'
+        });
+        
+        feature.setStyle(new Style({
+          fill: new Fill({ 
+            color: ownedGreen
+          })
+        }));
+        
+        this.validPositionsLayer.getSource().addFeature(feature);
+      });
+      
+      // Display valid attack positions (red X only, no cell fill)
+      this.validAttackSpots.forEach(spot => {
+        // Add an X marker centered in the cell
+        const xFeature = new Feature({
+          geometry: new Point([spot.x + 0.5, spot.y + 0.5]),
+          type: 'valid_attack_x'
+        });
+        
+        xFeature.setStyle(new Style({
+          text: new Text({
+            text: 'X',
+            font: 'bold 25px Arial',
+            fill: new Fill({ 
+              color: attackRed
+            })
+          })
+        }));
+        
+        // Add the X feature
+        this.validPositionsLayer.getSource().addFeature(xFeature);
+      });
+    },
+
+    // Highlight the selected troop to make it stand out
+    highlightSelectedTroop() {
+      if (!this.selectedTroop) return;
+      
+      // Find all features in the troop layer
+      const features = this.troopLayer.getSource().getFeatures();
+      
+      // Find the feature for the selected troop
+      const selectedFeature = features.find(feature => {
+        const troopData = feature.get('troop');
+        return troopData && troopData.id === this.selectedTroop.id;
+      });
+      
+      if (selectedFeature) {
+        // Get the current style
+        const currentStyle = selectedFeature.getStyle();
+        
+        // Get the cell coordinates (floor the position to get cell origin)
+        const x = Math.floor(this.selectedTroop.location.x);
+        const y = Math.floor(this.selectedTroop.location.y);
+        
+        // Create a polygon for the entire cell with highlight
+        const cellCoordinates = [
+          [x, y],
+          [x + 1, y],
+          [x + 1, y + 1],
+          [x, y + 1],
+          [x, y]
+        ];
+        
+        // Create a highlight feature for the cell
+        const highlightFeature = new Feature({
+          geometry: new Polygon([cellCoordinates]),
+          type: 'selected_troop'
+        });
+        
+        // Use a gold/amber highlight for the selected cell - professional and distinct
+        highlightFeature.setStyle(new Style({
+          stroke: new Stroke({
+            color: 'rgba(255, 193, 7, 0.9)', // Gold/amber color
+            width: 3,
+            lineDash: [5, 5] // Dashed line for more professional look
+          }),
+          fill: new Fill({
+            color: 'rgba(255, 193, 7, 0.15)' // Very subtle fill
+          })
+        }));
+        
+        // Add the highlight feature to the valid positions layer
+        this.validPositionsLayer.getSource().addFeature(highlightFeature);
+        
+        // Also highlight the troop icon with a gold ring
+        const highlightStyle = new Style({
+          image: new Circle({
+            radius: 14, // Slightly larger radius
+            stroke: new Stroke({
+              color: 'rgba(255, 193, 7, 0.9)', // Gold/amber color
+              width: 2.5
+            }),
+            fill: new Fill({
+              color: 'rgba(255, 193, 7, 0.1)' // Almost transparent fill
+            })
+          })
+        });
+        
+        // Apply the combined styles
+        selectedFeature.setStyle([highlightStyle].concat(Array.isArray(currentStyle) ? currentStyle : [currentStyle]));
+      }
+    },
+
+    // Clear the troop selection and valid positions
+    clearTroopSelection() {
+      // Clear the valid positions layer
+      if (this.validPositionsLayer) {
+        this.validPositionsLayer.getSource().clear();
+      }
+      
+      // Remove highlight from any previously selected troop
+      if (this.selectedTroop) {
+        // Redraw the troop layer to reset styles
+        this.updateTroopLayer();
+      }
+      
+      // Reset selection state
+      this.selectedTroop = null;
+      this.validMoveSpots = [];
+      this.validAttackSpots = [];
+    },
+    
     handleMoveEnd() {
       this.zoomLevel = this.map.getView().getZoom().toFixed(2);
       this.clearStyleCache(); // Clear style cache when zoom level changes
       this.updateSubgrids();
+      
+      // Update troop layer based on new zoom level
+      this.updateTroopLayer();
+      
+      // Clear troop selection when moving map
+      this.clearTroopSelection();
       
       // Check for focused village after the map finishes moving
       this.checkFocusedVillage();
@@ -1440,10 +2066,6 @@ export default {
       };
     },
 
-    hideHoverDialog() {
-      this.hoverDialog.show = false;
-    },
-
     clearStyleCache() {
       this.styleCache = {};
     },
@@ -1586,7 +2208,91 @@ export default {
           this.refreshFocusedVillage(true); // Force refresh
         }
       }, 1000);
-    }
+    },
+
+    // Add a new method to clear the icon cache
+    clearIconCache() {
+      console.log('Clearing icon cache');
+      this.iconCache = {};
+    },
+
+    // Add handleValidPositionClick method to handle clicks on valid move/attack positions
+    handleValidPositionClick(x, y) {
+      if (!this.selectedTroop) return false;
+      
+      // Check if the position is a valid move or attack spot
+      const isValidMove = this.validMoveSpots.some(spot => 
+        Math.floor(spot.x) === Math.floor(x) && 
+        Math.floor(spot.y) === Math.floor(y)
+      );
+      
+      const isValidAttack = this.validAttackSpots.some(spot => 
+        Math.floor(spot.x) === Math.floor(x) && 
+        Math.floor(spot.y) === Math.floor(y)
+      );
+      
+      if (!isValidMove && !isValidAttack) return false;
+      
+      // Find the home village for the selected troop
+      const homeVillage = this.villages.find(v => v.id === this.selectedTroop.home_id);
+      
+      // Calculate estimated time (would normally come from the backend)
+      // For now, just estimate based on distance
+      const distance = Math.sqrt(
+        Math.pow(this.selectedTroop.location.x - x, 2) + 
+        Math.pow(this.selectedTroop.location.y - y, 2)
+      );
+      
+      // Base time plus distance factor (1 minute per grid cell)
+      const estimatedTime = Math.ceil(distance * 5); // 5 minutes per grid cell
+      
+      // Show the troop action dialog
+      this.troopActionDialog = {
+        show: true,
+        troop: this.selectedTroop,
+        targetLocation: { x: Math.floor(x), y: Math.floor(y) },
+        canMove: isValidMove,
+        canAttack: isValidAttack,
+        homeVillage: homeVillage,
+        estimatedTime: estimatedTime
+      };
+      
+      return true;
+    },
+    
+    // Handle the executed troop action
+    handleTroopActionExecuted(actionData) {
+      // Refresh the map data after a short delay
+      setTimeout(() => {
+        this.fetchMapData().then(data => {
+          // Update the villages array with fresh data
+          this.villages = data.villages.map(village => ({
+            ...village,
+            resource_fields: village.resource_fields || Array(20).fill(null)
+          }));
+          
+          // Update the focused village if needed
+          if (this.focusedVillage) {
+            const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
+            if (updatedVillage) {
+              this.focusedVillage = {
+                ...updatedVillage,
+                resources: updatedVillage.resources || this.focusedVillage.resources
+              };
+            }
+          }
+          
+          // Update troops with fresh data
+          this.troops = data.troops || [];
+          
+          // Clear the troop selection
+          this.clearTroopSelection();
+          
+          // Update the troop layer
+          this.updateTroopLayer();
+        });
+      }, 500);
+    },
   }
 };
 </script>

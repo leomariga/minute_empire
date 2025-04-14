@@ -20,6 +20,7 @@ class TroopMode(str, Enum):
     ATTACK = "attack"
     DEFEND = "defend"
     MOVE = "move"
+    RETURN = "return"
 
 class ConstructionType(str, Enum):
     CITY_CENTER = "city_center"

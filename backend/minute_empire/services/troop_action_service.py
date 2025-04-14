@@ -44,16 +44,16 @@ class TroopActionService:
         if target_x < x_min or target_x > x_max or target_y < y_min or target_y > y_max:
             return {"valid": False, "reason": f"Target location ({target_x}, {target_y}) is outside map bounds {x_min}-{x_max}, {y_min}-{y_max}"}
         
-        # Calculate Manhattan distance
-        distance = abs(target_x - troop.location.x) + abs(target_y - troop.location.y)
-        
-        if distance == 0:
+        # Check if target is the same as current location
+        if target_x == troop.location.x and target_y == troop.location.y:
             return {"valid": False, "reason": f"Troop is already at location ({target_x}, {target_y})"}
-            
-        # Check if target is within movement range
-        max_distance = 100  # Example maximum move distance
-        if distance > max_distance:
-            return {"valid": False, "reason": f"Target location ({target_x}, {target_y}) is too far. Maximum distance: {max_distance}, actual distance: {distance}"}
+        
+        # Get valid move locations for this troop type
+        valid_move_spots = Troop.get_valid_move_spots(troop.type, troop.location)
+        
+        # Check if target location is in valid move spots
+        if {"x": target_x, "y": target_y} not in valid_move_spots:
+            return {"valid": False, "reason": f"Target location ({target_x}, {target_y}) is not a valid move for {troop.type.value}"}
         
         return {"valid": True}
     
@@ -69,26 +69,12 @@ class TroopActionService:
         if target_x < x_min or target_x > x_max or target_y < y_min or target_y > y_max:
             return {"valid": False, "reason": f"Target location ({target_x}, {target_y}) is outside map bounds {x_min}-{x_max}, {y_min}-{y_max}"}
         
-        # Find village at target location - REMOVED (will be handled during action completion)
-        # target_village = await self.village_repository.find_by_location(x=target_x, y=target_y)
-        # if not target_village:
-        #    return {"valid": False, "reason": f"No village found at location ({target_x}, {target_y})"}
+        # Get valid attack locations for this troop type
+        valid_attack_spots = Troop.get_valid_attack_spots(troop.type, troop.location)
         
-        # Don't allow attacking own villages - REMOVED (will be handled during action completion)
-        # if troop.home_id == target_village.id:
-        #    return {"valid": False, "reason": f"Cannot attack your own village at ({target_x}, {target_y})"}
-        
-        # Calculate attack range (Manhattan distance)
-        distance = abs(target_x - troop.location.x) + abs(target_y - troop.location.y)
-        
-        # Check if target is within attack range
-        max_distance = 100
-        if distance > max_distance:
-            return {"valid": False, "reason": f"Target location ({target_x}, {target_y}) is too far. Maximum attack range: {max_distance}, actual distance: {distance}"}
-        
-        # Check if troop is at the same location
-        if distance == 0:
-            return {"valid": False, "reason": f"Cannot attack the same location where troop is positioned ({target_x}, {target_y})"}
+        # Check if target location is in valid attack spots
+        if {"x": target_x, "y": target_y} not in valid_attack_spots:
+            return {"valid": False, "reason": f"Target location ({target_x}, {target_y}) is not a valid attack for {troop.type.value}"}
         
         return {"valid": True}
     
