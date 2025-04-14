@@ -48,6 +48,16 @@
       @task-completed="handleTaskCompleted"
     />
 
+    <!-- Troop Action Tasks Display -->
+    <troop-action-task-display
+      :show="zoomLevel <= zoomTroopThresholdOn && zoomLevel >= zoomTroopThresholdOff"
+      :tasks="mapData?.troop_actions || []"
+      :troops="mapData?.troops || []"
+      :server-time="mapData?.server_time"
+      :client-response-time="mapData?.client_response_time"
+      @task-completed="handleTroopActionCompleted"
+    />
+
     <!-- Error Snackbar -->
     <v-snackbar
       v-model="snackbar.show"
@@ -130,7 +140,8 @@ import MapSelectionDialog from '@/components/selection_dialogs/MapSelectionDialo
 import TroopActionDialog from '@/components/selection_dialogs/TroopActionDialog.vue'
 import VillageResourcesDisplay from '@/components/VillageResourcesDisplay.vue'
 import ConstructionTasksDisplay from '@/components/ConstructionTasksDisplay.vue'
-import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon, getResourceInfo, getBuildingInfo, getTroopInfo, getTroopIcon, getTroopColor, TASK_TYPES, TROOP_TYPES } from '@/constants/gameElements';
+import TroopActionTaskDisplay from '@/components/TroopActionTaskDisplay.vue'
+import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon, getResourceInfo, getBuildingInfo, getTroopInfo, getTroopIcon, getTroopColor, TASK_TYPES, TROOP_TYPES, formatTargetTypeName } from '@/constants/gameElements';
 import { getValidMoveSpots, getValidAttackSpots } from '@/utils/troopMovement';
 
 // Set up geographic coordinates
@@ -147,7 +158,8 @@ export default {
     MapSelectionDialog,
     TroopActionDialog,
     VillageResourcesDisplay,
-    ConstructionTasksDisplay
+    ConstructionTasksDisplay,
+    TroopActionTaskDisplay
   },
   
   data() {
@@ -220,6 +232,7 @@ export default {
       villageRefreshTimer: null,
       lastVillageRefresh: 0,
       taskCompletionTimer: null,
+      troopActionCompletionTimer: null,
       iconCache: {},
       // Troop action dialog state
       troopActionDialog: {
@@ -2207,6 +2220,21 @@ export default {
         if (this.focusedVillage) {
           this.refreshFocusedVillage(true); // Force refresh
         }
+      }, 1000);
+    },
+
+// Handle completed troop action task
+    handleTroopActionCompleted(task) {
+      console.log('Troop action completed:', task);
+      
+      // Wait 1 second before refreshing map data to allow server-side processing to complete
+      if (this.troopActionCompletionTimer) {
+        clearTimeout(this.troopActionCompletionTimer);
+      }
+      
+      this.troopActionCompletionTimer = setTimeout(() => {
+        console.log('Refreshing map data after troop action completion');
+        this.handleTroopActionExecuted();
       }, 1000);
     },
 
