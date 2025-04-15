@@ -4,8 +4,8 @@
       <table>
         <thead>
           <tr>
-            <th>Building/Field</th>
-            <th class="slot-col">Slot</th>
+            <th>Building/Field/Troop</th>
+            <th class="slot-col">Slot/Qty</th>
             <th class="operation-col">Operation</th>
             <th class="time-col">Remaining</th>
             <th class="hide-on-mobile">Completion</th>
@@ -14,10 +14,10 @@
         <tbody>
           <tr v-for="task in activeTasks" :key="task.id">
             <td class="task-type">
-              <v-icon size="18" :color="getTaskTypeColor(task.task_type)">{{ getTaskTypeIcon(task.task_type) }}</v-icon>
-              <span class="task-name">{{ getFormattedTargetName(task) }}</span>
+              <v-icon size="18" :color="getTaskColor(task)">{{ getTaskIcon(task) }}</v-icon>
+              <span class="task-name">{{ getTaskName(task) }}</span>
             </td>
-            <td class="slot-col">{{ task.slot }}</td>
+            <td class="slot-col">{{ getTaskSlotOrQuantity(task) }}</td>
             <td class="operation-col">
               <div class="operation-wrapper">
                 <template v-if="isUpgradeTask(task)">
@@ -25,6 +25,9 @@
                     <v-icon size="16" :color="getOperationColor(task)">{{ getOperationIcon(task) }}</v-icon>
                     <span class="upgrade-level">{{ task.level }}</span>
                   </div>
+                </template>
+                <template v-else-if="isTroopTrainingTask(task)">
+                  <v-icon size="16" :color="getTroopColor(task.troop_type)">mdi-shield-account</v-icon>
                 </template>
                 <template v-else>
                   <v-icon size="16" :color="getOperationColor(task)">{{ getOperationIcon(task) }}</v-icon>
@@ -36,7 +39,7 @@
                 <div class="progress-bar">
                   <div class="progress-fill" :style="{
                     width: `${calculateProgress(task)}%`,
-                    backgroundColor: getTaskTypeColor(task.task_type) 
+                    backgroundColor: getTaskColor(task) 
                   }"></div>
                 </div>
                 <span class="time-text countdown">{{ currentTimes[task.id] }}</span>
@@ -49,12 +52,12 @@
     </div>
   </div>
   <div v-else-if="show" class="no-tasks-message">
-    No active construction tasks
+    No active construction or training tasks
   </div>
 </template>
 
 <script>
-import { TASK_TYPES, formatTargetTypeName } from '../constants/gameElements';
+import { TASK_TYPES, formatTargetTypeName, TROOP_TYPES, getTroopTypeName, getTroopInfo, getTroopColor } from '../constants/gameElements';
 
 export default {
   name: 'ConstructionTasksDisplay',
@@ -65,6 +68,11 @@ export default {
       required: true
     },
     tasks: {
+      type: Array,
+      required: false,
+      default: () => []
+    },
+    troopTrainingTasks: {
       type: Array,
       required: false,
       default: () => []
@@ -108,12 +116,26 @@ export default {
       return this.forceUpdate;
     },
     
+    // Combine construction tasks and troop training tasks
+    allTasks() {
+      const constructionTasks = this.tasks || [];
+      const troopTasks = this.troopTrainingTasks || [];
+      
+      // Mark troop training tasks to identify them later
+      const markedTroopTasks = troopTasks.map(task => ({
+        ...task,
+        isTroopTraining: true
+      }));
+      
+      return [...constructionTasks, ...markedTroopTasks];
+    },
+    
     // Filter only active tasks (not yet completed)
     activeTasks() {
       // Use current timestamp to force updates
       const _ = this.currentTimestamp;
       
-      const active = this.tasks.filter(task => {
+      const active = this.allTasks.filter(task => {
         if (!task) return false;
         
         // Calculate remaining time
@@ -147,7 +169,7 @@ export default {
       }
     },
     
-    tasks: {
+    allTasks: {
       immediate: true,
       deep: true,
       handler(newTasks) {
@@ -184,11 +206,11 @@ export default {
 
   methods: {
     updateAllTimes() {
-      if (!this.tasks || this.tasks.length === 0) return;
+      if (!this.allTasks || this.allTasks.length === 0) return;
       
-      console.log("Updating all times for tasks:", this.tasks.length);
+      console.log("Updating all times for tasks:", this.allTasks.length);
       
-      this.tasks.forEach(task => {
+      this.allTasks.forEach(task => {
         if (!task || !task.id) return;
         
         const remainingTime = this.calculateRemainingTime(task);
@@ -211,8 +233,8 @@ export default {
         this.updateAllTimes();
         
         // Check for completed tasks
-        if (this.tasks && this.tasks.length > 0) {
-          this.tasks.forEach(task => {
+        if (this.allTasks && this.allTasks.length > 0) {
+          this.allTasks.forEach(task => {
             if (!task || !task.id) return;
             
             const remainingTime = this.calculateRemainingTime(task);
@@ -318,6 +340,68 @@ export default {
       return type.toLowerCase().replace('_', '-');
     },
 
+    // Determine if a task is a troop training task
+    isTroopTrainingTask(task) {
+      return task && task.isTroopTraining === true;
+    },
+
+    // Get the task color (works for both construction and troop tasks)
+    getTaskColor(task) {
+      if (this.isTroopTrainingTask(task)) {
+        return this.getTroopColor(task.troop_type);
+      } else {
+        return this.getTaskTypeColor(task.task_type);
+      }
+    },
+
+    // Get the task icon (works for both construction and troop tasks)
+    getTaskIcon(task) {
+      if (this.isTroopTrainingTask(task)) {
+        return this.getTroopIcon(task.troop_type);
+      } else {
+        return this.getTaskTypeIcon(task.task_type);
+      }
+    },
+
+    // Get the task name (works for both construction and troop tasks)
+    getTaskName(task) {
+      if (this.isTroopTrainingTask(task)) {
+        return `${getTroopTypeName(task.troop_type)}`;
+      } else {
+        return this.getFormattedTargetName(task);
+      }
+    },
+
+    // Get slot for construction tasks, quantity for troop tasks
+    getTaskSlotOrQuantity(task) {
+      if (this.isTroopTrainingTask(task)) {
+        return task.quantity;
+      } else {
+        return task.slot;
+      }
+    },
+
+    // Get the troop color
+    getTroopColor(troopType, opacity = 1) {
+      // Use helper from gameElements
+      const troopInfo = getTroopInfo(troopType);
+      if (!troopInfo) return `rgba(158, 158, 158, ${opacity})`;
+      
+      // Convert hex to rgba
+      const hex = troopInfo.color;
+      const r = parseInt(hex.slice(1, 3), 16);
+      const g = parseInt(hex.slice(3, 5), 16);
+      const b = parseInt(hex.slice(5, 7), 16);
+      
+      return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+    },
+
+    // Get the troop icon
+    getTroopIcon(troopType) {
+      const troopInfo = getTroopInfo(troopType);
+      return troopInfo ? troopInfo.icon : 'mdi-help-circle';
+    },
+
     getTaskTypeColor(type, opacity = 1) {
       // Normalize type to uppercase for consistency
       const normalizedType = type?.toUpperCase() || 'DEFAULT';
@@ -356,6 +440,9 @@ export default {
     
     isUpgradeTask(task) {
       if (!task || !task.task_type) return false;
+      
+      // Not upgrade task if it's a troop training task
+      if (this.isTroopTrainingTask(task)) return false;
       
       // Normalize task type to uppercase for consistency
       const normalizedType = task.task_type.toUpperCase();

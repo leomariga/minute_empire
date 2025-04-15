@@ -35,7 +35,8 @@ export const BUILDINGS = {
     icon: 'mdi-home-city',
     color: '#795548', // Brown
     category: 'core',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['resource_bonus']
   },
   RALLY_POINT: {
     id: 'rally_point',
@@ -44,7 +45,8 @@ export const BUILDINGS = {
     icon: 'mdi-flag',
     color: '#ff5722', // Deep orange
     category: 'military',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['troop_command']
   },
   BARRAKS: {
     id: 'barraks',
@@ -53,7 +55,9 @@ export const BUILDINGS = {
     icon: 'mdi-shield',
     color: '#f44336', // Red
     category: 'military',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['troop_training'],
+    troops: ['militia']
   },
   ARCHERY: {
     id: 'archery',
@@ -62,7 +66,9 @@ export const BUILDINGS = {
     icon: 'mdi-bow-arrow',
     color: '#9c27b0', // Purple
     category: 'military',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['troop_training'],
+    troops: ['archer']
   },
   STABLE: {
     id: 'stable',
@@ -71,7 +77,9 @@ export const BUILDINGS = {
     icon: 'mdi-horse-variant',
     color: '#8d6e63', // Brown
     category: 'military',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['troop_training'],
+    troops: ['light_cavalry']
   },
   WAREHOUSE: {
     id: 'warehouse',
@@ -80,7 +88,8 @@ export const BUILDINGS = {
     icon: 'mdi-warehouse',
     color: '#607d8b', // Blue gray
     category: 'economy',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['resource_storage']
   },
   GRANARY: {
     id: 'granary',
@@ -89,7 +98,8 @@ export const BUILDINGS = {
     icon: 'mdi-hoop-house',
     color: '#8bc34a', // Light green
     category: 'economy',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['resource_storage']
   },
   HIDE_SPOT: {
     id: 'hide_spot',
@@ -98,7 +108,8 @@ export const BUILDINGS = {
     icon: 'mdi-eye-off-outline',
     color: '#455a64', // Dark blue gray
     category: 'defense',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['defense']
   },
   WALL: {
     id: 'wall',
@@ -107,7 +118,8 @@ export const BUILDINGS = {
     icon: 'mdi-wall',
     color: '#78909c', // Blue gray
     category: 'defense',
-    image: 'logo.png'
+    image: 'logo.png',
+    buildingTypes: ['defense']
   }
 };
 

@@ -31,6 +31,8 @@ from minute_empire.api.api_models import (
 from minute_empire.domain.world import World
 from minute_empire.domain.building import Building
 from minute_empire.domain.resource_field import ResourceProducer
+from minute_empire.domain.troop import Troop
+from minute_empire.schemas.schemas import ConstructionType
 
 app = FastAPI(
     title="Minute Empire API",
@@ -451,13 +453,15 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                             # Add base costs and creation times
                             village_data.base_costs = {
                                 "buildings": Building.BASE_CREATION_COSTS,
-                                "fields": ResourceProducer.BASE_CREATION_COSTS
+                                "fields": ResourceProducer.BASE_CREATION_COSTS,
+                                "troops": Troop.TRAINING_COSTS
                             }
                             
                             # Base creation times (in minutes)
                             village_data.base_creation_times = {
                                 "buildings": Building.BASE_CREATION_TIMES,
-                                "fields": ResourceProducer.BASE_CREATION_TIMES
+                                "fields": ResourceProducer.BASE_CREATION_TIMES,
+                                "troops": Troop.TRAINING_TIMES
                             }
                             
                             # Get resource fields information
@@ -488,16 +492,33 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                                 for construction in updated_village.city.constructions:
                                     building = updated_village.get_building(construction.slot)
                                     if building:
-                                        construction_info = ConstructionInfo(
-                                            type=building.type,
-                                            level=building.level,
-                                            slot=building.slot,
-                                            production_bonus=building.get_production_bonus(),
-                                            upgrade_cost=building.get_upgrade_cost(),
-                                            upgrade_time=building.get_upgrade_time(),
-                                            next_level_bonus=building.get_production_bonus(level=building.level + 1)
-                                        )
+                                        # Skip production bonuses for buildings that don't have them
+                                        no_bonus_types = [
+                                            ConstructionType.BARRAKS, 
+                                            ConstructionType.ARCHERY, 
+                                            ConstructionType.STABLE,
+                                            ConstructionType.RALLY_POINT,
+                                            ConstructionType.HIDE_SPOT
+                                        ]
+                                        
+                                        # Base construction info without bonuses
+                                        construction_info_data = {
+                                            "type": building.type,
+                                            "level": building.level,
+                                            "slot": building.slot,
+                                            "upgrade_cost": building.get_upgrade_cost(),
+                                            "upgrade_time": building.get_upgrade_time()
+                                        }
+                                        
+                                        # Add production bonuses only for buildings that have them
+                                        if building.type not in no_bonus_types:
+                                            construction_info_data["production_bonus"] = building.get_production_bonus()
+                                            construction_info_data["next_level_bonus"] = building.get_production_bonus(level=building.level + 1)
+                                            
+                                        # Create the ConstructionInfo object
+                                        construction_info = ConstructionInfo(**construction_info_data)
                                         constructions_info.append(construction_info)
+                                
                                 city_info.constructions = constructions_info
                                 
                                 village_data.city = city_info
@@ -507,6 +528,14 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                                 # Only include non-processed tasks
                                 village_data.construction_tasks = [
                                     task for task in updated_village._data.construction_tasks
+                                    if not task.processed
+                                ]
+                                
+                            # Add troop training tasks directly to the village
+                            if hasattr(updated_village._data, 'troop_training_tasks'):
+                                # Only include non-processed tasks
+                                village_data.troop_training_tasks = [
+                                    task for task in updated_village._data.troop_training_tasks
                                     if not task.processed
                                 ]
                                 

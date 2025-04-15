@@ -3,7 +3,7 @@ import re
 from typing import Optional, List, Dict, Union
 from minute_empire.schemas.schemas import (
     Location, ResourceField, City, Construction, ConstructionType, TaskType, ConstructionTask,
-    TroopType, TroopMode, ActionType, Resources
+    TroopType, TroopMode, ActionType, Resources, TroopTrainingTask
 )
 
 # Pydantic model for registration request
@@ -87,10 +87,10 @@ class ResourceFieldsInfo(ResourceField):
     next_level_production_rate: Dict[str, float] = Field(..., description="Production rates at next level for each resource type")
 
 class ConstructionInfo(Construction):
-    production_bonus: Dict[str, float] = Field(..., description="Current production bonuses provided by the building for each resource type")
+    production_bonus: Optional[Dict[str, float]] = Field(None, description="Current production bonuses provided by the building for each resource type")
     upgrade_cost: Dict[str, int] = Field(..., description="Resource costs to upgrade to next level")
     upgrade_time: int = Field(..., description="Time in minutes to upgrade to next level")
-    next_level_bonus: Dict[str, float] = Field(..., description="Production bonuses at next level for each resource type")
+    next_level_bonus: Optional[Dict[str, float]] = Field(None, description="Production bonuses at next level for each resource type")
 
 class CityInfo(BaseModel):
     wall: Optional[ConstructionInfo] = None
@@ -113,13 +113,14 @@ class MapVillage(BaseModel):
     resource_fields: Optional[List[ResourceFieldsInfo]] = None
     city: Optional[CityInfo] = None
     construction_tasks: Optional[List[ConstructionTask]] = Field(default_factory=list, description="List of village's construction tasks")
+    troop_training_tasks: Optional[List[TroopTrainingTask]] = Field(default_factory=list, description="List of village's troop training tasks")
     base_costs: Optional[Dict[str, Dict[str, Dict[str, int]]]] = Field(
         default=None,
-        description="Base costs for creating buildings and resource fields"
+        description="Base costs for creating buildings, resource fields, and training troops"
     )
     base_creation_times: Optional[Dict[str, Dict[str, int]]] = Field(
         default=None,
-        description="Base creation times in minutes for buildings and resource fields"
+        description="Base creation times in minutes for buildings, resource fields, and troop training"
     )
     total_population: Optional[int] = Field(
         default=0,

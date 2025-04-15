@@ -44,9 +44,22 @@
       
       <!-- Building - show bonus info -->
       <BuildingBonusPanel
-        v-else-if="type === 'building' && fieldOrBuilding"
+        v-else-if="type === 'building' && fieldOrBuilding && !isMilitaryBuilding"
         :building="fieldOrBuilding"
         :is-being-upgraded="isBeingUpgraded"
+      />
+      
+      <!-- Military Building - show troop training panel -->
+      <TrainTroopPanel
+        v-else-if="type === 'building' && fieldOrBuilding && isMilitaryBuilding"
+        :building="fieldOrBuilding"
+        :village="village"
+        :is-training-in-progress="isTrainingInProgress"
+        :training-type-name="getTrainingTypeName"
+        :training-type-color="getTrainingTypeColor"
+        :training-type-icon="getTrainingTypeIcon"
+        :training-time-remaining="getTrainingTimeRemaining"
+        @train="handleTrain"
       />
     </template>
     
@@ -64,12 +77,13 @@
 </template>
 
 <script>
-import { getResourceColor, getResourceIcon, getBuildingColor, getBuildingIcon, getResourceInfo, getBuildingInfo, getResourceFieldInfo, UI_COLORS, getResourceFieldImageRef, getBuildingImageRef, RESOURCE_FIELDS, BUILDINGS } from '@/constants/gameElements';
+import { getResourceColor, getResourceIcon, getBuildingColor, getBuildingIcon, getResourceInfo, getBuildingInfo, getResourceFieldInfo, UI_COLORS, getResourceFieldImageRef, getBuildingImageRef, RESOURCE_FIELDS, BUILDINGS, getTroopTypeName, getTroopColor, getTroopIcon, MILITARY_BUILDINGS } from '@/constants/gameElements';
 import BaseSelectionDialog from './BaseSelectionDialog.vue';
 import ResourceProductionPanel from './ResourceProductionPanel.vue';
 import BuildingBonusPanel from './BuildingBonusPanel.vue';
 import UpgradePanel from './UpgradePanel.vue';
 import CreationPanel from './CreationPanel.vue';
+import TrainTroopPanel from './TrainTroopPanel.vue';
 
 export default {
   name: 'MapSelectionDialog',
@@ -79,7 +93,8 @@ export default {
     ResourceProductionPanel,
     BuildingBonusPanel,
     UpgradePanel,
-    CreationPanel
+    CreationPanel,
+    TrainTroopPanel
   },
   
   props: {
@@ -451,6 +466,139 @@ export default {
         const buildingType = task.target_type || task.building_type || task.type || 'building';
         return getBuildingIcon(buildingType);
       }
+    },
+    
+    isMilitaryBuilding() {
+      if (!this.fieldOrBuilding) return false;
+      
+      // Get the building info
+      const buildingInfo = getBuildingInfo(this.fieldOrBuilding.type);
+      
+      // Check if this building has troop_training in its buildingTypes
+      return buildingInfo && 
+        buildingInfo.buildingTypes && 
+        buildingInfo.buildingTypes.includes('troop_training');
+    },
+    
+    isTrainingInProgress() {
+      if (!this.village || !this.village.construction_tasks) {
+        return false;
+      }
+
+      return this.village.construction_tasks.some(task => {
+        // Check if this is a troop training task for the current building
+        return task.task_type === 'train_troops' && 
+               task.building_slot === this.fieldOrBuilding?.slot;
+      });
+    },
+    
+    getTrainingTypeName() {
+      if (!this.village || !this.village.construction_tasks || !this.fieldOrBuilding) {
+        return 'Troops';
+      }
+      
+      const task = this.village.construction_tasks.find(task => 
+        task.task_type === 'train_troops' && 
+        task.building_slot === this.fieldOrBuilding.slot
+      );
+      
+      if (!task) return 'Troops';
+      
+      // Get troop type name based on the task
+      const troopType = task.troop_type || '';
+      return getTroopTypeName(troopType);
+    },
+    
+    getTrainingTypeColor() {
+      if (!this.village || !this.village.construction_tasks || !this.fieldOrBuilding) {
+        return '#607D8B';
+      }
+      
+      const task = this.village.construction_tasks.find(task => 
+        task.task_type === 'train_troops' && 
+        task.building_slot === this.fieldOrBuilding.slot
+      );
+      
+      if (!task) return '#607D8B';
+      
+      // Get color based on troop type
+      const troopType = task.troop_type || '';
+      return getTroopColor(troopType);
+    },
+    
+    getTrainingTypeIcon() {
+      if (!this.village || !this.village.construction_tasks || !this.fieldOrBuilding) {
+        return 'mdi-sword';
+      }
+      
+      const task = this.village.construction_tasks.find(task => 
+        task.task_type === 'train_troops' && 
+        task.building_slot === this.fieldOrBuilding.slot
+      );
+      
+      if (!task) return 'mdi-sword';
+      
+      // Get icon based on troop type
+      const troopType = task.troop_type || '';
+      return getTroopIcon(troopType);
+    },
+    
+    getTrainingTimeRemaining() {
+      if (!this.village || !this.village.construction_tasks || !this.fieldOrBuilding || !this.mapData) {
+        return '';
+      }
+      
+      const task = this.village.construction_tasks.find(task => 
+        task.task_type === 'train_troops' && 
+        task.building_slot === this.fieldOrBuilding.slot
+      );
+      
+      if (!task || !task.completion_time) return '';
+      
+      try {
+        // Handle ISO 8601 format dates (2025-03-31T20:47:05.883000) or timestamps
+        let completionTime, serverTime;
+        
+        // Check if the completion time is an ISO date string
+        if (typeof task.completion_time === 'string' && task.completion_time.includes('T')) {
+          completionTime = new Date(task.completion_time).getTime() / 1000;
+        } else {
+          // Fallback to parsing as a timestamp
+          completionTime = parseInt(task.completion_time) || 0;
+        }
+        
+        // Check if server time is an ISO date string
+        if (typeof this.mapData.server_time === 'string' && this.mapData.server_time.includes('T')) {
+          serverTime = new Date(this.mapData.server_time).getTime() / 1000;
+        } else {
+          // Fallback to parsing as a timestamp
+          serverTime = parseInt(this.mapData.server_time) || 0;
+        }
+        
+        if (!serverTime || !completionTime) {
+          return 'Time remaining unavailable';
+        }
+        
+        // Calculate time difference
+        const diffInSeconds = Math.max(0, completionTime - serverTime);
+        if (diffInSeconds <= 0) return 'Completing...';
+        
+        // Format time remaining
+        if (diffInSeconds >= 3600) {
+          const hours = Math.floor(diffInSeconds / 3600);
+          const minutes = Math.floor((diffInSeconds % 3600) / 60);
+          return `${hours}h ${minutes}m remaining`;
+        } else if (diffInSeconds >= 60) {
+          const minutes = Math.floor(diffInSeconds / 60);
+          const seconds = Math.floor(diffInSeconds % 60);
+          return `${minutes}m ${seconds}s remaining`;
+        } else {
+          return `${Math.floor(diffInSeconds)}s remaining`;
+        }
+      } catch (error) {
+        console.error('Error calculating remaining time:', error, task);
+        return 'Time calculation error';
+      }
     }
   },
   
@@ -471,6 +619,12 @@ export default {
     handleCreate(data) {
       // Pass complete data through to parent
       this.$emit('create', data);
+      this.closeDialog();
+    },
+    
+    handleTrain(data) {
+      // Pass complete data through to parent
+      this.$emit('train', data);
       this.closeDialog();
     }
   }

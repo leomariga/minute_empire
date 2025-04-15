@@ -41,6 +41,7 @@
     <construction-tasks-display
       :show="!!focusedVillage"
       :tasks="focusedVillage?.construction_tasks || []"
+      :troop-training-tasks="focusedVillage?.troop_training_tasks || []"
       :villages="villages"
       :focused-village="focusedVillage"
       :server-time="mapData?.server_time"
@@ -99,6 +100,7 @@
       :map-data="mapData"
       @upgrade="handleUpgrade"
       @create="handleCreate"
+      @train="handleTrainTroops"
     >
       <template #additional-info>
         <!-- Future expansion slot for additional information -->
@@ -141,7 +143,7 @@ import TroopActionDialog from '@/components/selection_dialogs/TroopActionDialog.
 import VillageResourcesDisplay from '@/components/VillageResourcesDisplay.vue'
 import ConstructionTasksDisplay from '@/components/ConstructionTasksDisplay.vue'
 import TroopActionTaskDisplay from '@/components/TroopActionTaskDisplay.vue'
-import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon, getResourceInfo, getBuildingInfo, getTroopInfo, getTroopIcon, getTroopColor, TASK_TYPES, TROOP_TYPES, formatTargetTypeName } from '@/constants/gameElements';
+import { getResourceColor, getBuildingColor, getResourceIcon, getBuildingIcon, getResourceInfo, getBuildingInfo, getTroopInfo, getTroopIcon, getTroopColor, getTroopTypeName, TASK_TYPES, TROOP_TYPES, formatTargetTypeName } from '@/constants/gameElements';
 import { getValidMoveSpots, getValidAttackSpots } from '@/utils/troopMovement';
 
 // Set up geographic coordinates
@@ -2117,6 +2119,71 @@ export default {
     
     handleCreate(data) {
       this.handleConstructionAction(data, 'create');
+    },
+    
+    handleTrainTroops(data) {
+      // Use the focused village
+      if (!this.focusedVillage) {
+        console.error('No focused village available for training troops');
+        this.showMessage('No village selected', 'error');
+        return;
+      }
+      
+      // Make sure the village is owned by the player
+      if (!this.focusedVillage.is_owned) {
+        console.error('Cannot train troops in a village not owned by player');
+        this.showMessage('You do not own this village', 'error');
+        return;
+      }
+
+      // Extract data from the event
+      const { troopType, quantity, buildingSlot, buildingType } = data;
+      
+      // Format the command - ensure troopType is lowercase to match the backend
+      const command = `train ${quantity} ${troopType.toLowerCase()}`;
+      
+      // Execute the command
+      apiService.executeCommand(this.focusedVillage.id, command)
+        .then(response => {
+          // Check if the command was successful
+          if (response && response.success === false) {
+            const errorMessage = response.message || `Failed to train troops: ${command}`;
+            this.showMessage(errorMessage, 'error');
+            return;
+          }
+          
+          // Show success message
+          this.showMessage(`Training ${quantity} ${getTroopTypeName(troopType)} started!`, 'success');
+          
+          // Make sure the dialog is closed
+          this.selectionDialog.show = false;
+          
+          // Immediately fetch fresh data and update the focused village
+          this.fetchMapData().then(data => {
+            // Update the villages array with fresh data
+            this.villages = data.villages.map(village => ({
+              ...village,
+              resource_fields: village.resource_fields || Array(20).fill(null)
+            }));
+            
+            // Update the focused village with fresh data
+            const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
+            if (updatedVillage) {
+              // Create a new object to ensure Vue reactivity
+              this.focusedVillage = {
+                ...updatedVillage,
+                resources: updatedVillage.resources || this.focusedVillage.resources
+              };
+            }
+            
+            // Update last refresh time
+            this.lastVillageRefresh = Date.now();
+          });
+        })
+        .catch(error => {
+          console.error('Failed to execute train troops command:', error);
+          this.showMessage(`Error: ${error.message || 'Failed to train troops'}`, 'error');
+        });
     },
     
     handleConstructionAction(data, actionType) {
