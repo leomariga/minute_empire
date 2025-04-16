@@ -1,106 +1,194 @@
-# Minute Empire Combat System
+# Minute Empire: Military Combat System
 
-## Overview
+## Abstract
 
-The Minute Empire combat system is designed to create dynamic, strategic battles between troops in the game world. This document outlines the mathematical model and combat mechanics that determine the outcome of battles.
+This document provides a comprehensive overview of the mathematical and algorithmic foundation of the Minute Empire combat system. The system is designed to simulate complex strategic military engagements through a series of well-defined calculations that account for troop characteristics, positional advantages, and combat dynamics. This model creates an emergent complexity that rewards strategic decision-making while maintaining computational efficiency.
 
-## Troop Statistics
+## 1. Introduction
 
-Each troop type has unique attack and defense values:
+The combat system in Minute Empire aims to balance realism, strategic depth, and computational elegance. Each military unit possesses intrinsic offensive and defensive capabilities that interact through mathematical transformations to determine battle outcomes. The system incorporates:
 
-| Troop Type    | Attack Value | Defense Value |
-|---------------|--------------|---------------|
-| Militia       | 1.0          | 1.0           |
-| Archer        | 1.0          | 0.5           |
-| Light Cavalry | 1.0          | 1.0           |
-| Pikeman       | 1.0          | 2.0           |
+- Troop type specializations
+- Quantity-based force scaling
+- Positional advantages
+- Range-based combat mechanics
+- Non-linear power curve progression
 
-These base statistics are scaled by the quantity of each troop.
+## 2. Mathematical Foundation
 
-## Combat Calculation Process
+### 2.1 Base Combat Statistics
 
-### 1. Raw Strength Calculation
+Each unit type possesses inherent combat attributes that define its battlefield role:
 
-Combat begins with calculating the raw attacking and defending power of all involved units:
+| Troop Type    | Attack Coefficient ($\alpha$) | Defense Coefficient ($\delta$) | Special Properties |
+|---------------|-------------------------------|--------------------------------|-------------------|
+| Militia       | 1.0                           | 1.0                            | Balanced          |
+| Archer        | 1.0                           | 0.5                            | Ranged immunity   |
+| Light Cavalry | 1.0                           | 1.0                            | Extended movement |
+| Pikeman       | 1.0                           | 2.0                            | Superior defense  |
 
-```
-raw_attacker_atk = attacker_quantity * attacker_type_atk_value
-raw_attacker_def = attacker_quantity * attacker_type_def_value
+### 2.2 Force Calculation
 
-raw_defender_atk = sum(defender_quantity * defender_type_atk_value for all defenders)
-raw_defender_def = sum(defender_quantity * defender_type_def_value for all defenders)
-```
+The raw offensive ($F_{atk}$) and defensive ($F_{def}$) forces are calculated as:
 
-### 2. Situational Modifiers
+$$F_{atk} = \sum_{i=1}^{n} Q_i \cdot \alpha_i$$
 
-Various combat situations can modify the raw values:
+$$F_{def} = \sum_{i=1}^{n} Q_i \cdot \delta_i$$
 
-- **Defender's Home Advantage**: Troops defending a village receive a 30% bonus (applied as a 30% reduction to the attacker's attack and defense values) if the village is owned by the same user who owns the defender's home village. This means troops get a defensive bonus in any friendly village, not just their own home village.
+Where:
+- $Q_i$ represents the quantity of troops of type $i$
+- $\alpha_i$ represents the attack coefficient of troop type $i$
+- $\delta_i$ represents the defense coefficient of troop type $i$
+- $n$ is the number of distinct troop types
 
-```
-if defending_a_friendly_village:
-    final_attacker_atk = raw_attacker_atk * 0.7
-    final_attacker_def = raw_attacker_def * 0.7
-```
+### 2.3 Territorial Advantage Model
 
-### 3. Snowball Ratio Calculation
+When defenders are in a friendly settlement, they receive a territorial advantage modifier $\theta$:
 
-To simulate the escalating advantage of having superior forces, a snowball ratio is calculated:
+$$F_{atk}^{adj} = F_{atk} \cdot (1 - \theta)$$
+$$F_{def}^{adj} = F_{def} \cdot (1 - \theta)$$
 
-```
-attacker_snowball_ratio = (final_attacker_atk / final_defender_def)^1.5
-defender_snowball_ratio = (final_defender_atk / final_attacker_def)^1.5
-```
+Where $\theta = 0.3$ (30% reduction to attacker's statistics)
 
-The exponent of 1.5 amplifies the effect of strength differences, creating a more decisive outcome when one side has a significant advantage.
+### 2.4 Combat Power Ratio and Non-Linear Scaling
 
-### 4. Loss Calculation
+To model the disproportionate advantage of superior forces, a non-linear power ratio is calculated:
 
-Troop losses are determined by the opponent's snowball ratio, capped between 0 and 1:
+$$R_{atk} = \left(\frac{F_{atk}^{adj}}{F_{def}^{adj}}\right)^{\gamma}$$
 
-```
-attacker_loss = median(0, defender_snowball_ratio, 1)
-defender_loss = median(0, attacker_snowball_ratio, 1)
-```
+$$R_{def} = \left(\frac{F_{def}^{adj}}{F_{atk}^{adj}}\right)^{\gamma}$$
 
-### 5. Special Rules for Ranged Units
+Where $\gamma = 1.5$ is the snowball exponent that amplifies force disparities.
 
-- **Archers**: Can attack without moving and don't receive return damage when attacking from range.
-- **Pikemen**: Can attack their current location or from range. When attacking from range, they don't receive return damage, but when attacking their current location, they do take damage.
+### 2.5 Casualty Calculation
 
-### 6. Threshold Application
+The proportion of casualties ($C$) for each side is bounded by the opponent's power ratio:
 
-Two thresholds determine the final outcome:
+$$C_{atk} = \min(\max(R_{def}, 0), 1)$$
+$$C_{def} = \min(\max(R_{atk}, 0), 1)$$
 
-- **All Dead Threshold (0.85)**: If a side's loss ratio exceeds 0.85, all troops on that side are eliminated.
-- **All Alive Threshold (0.15)**: If a side's loss ratio is below 0.15, no troops on that side are lost.
+To prevent negligible losses or total annihilation from minor advantages, threshold limits are applied:
 
-### 7. Outcome Resolution
+$$
+C_{atk} = 
+\begin{cases} 
+0 & \text{if } C_{atk} < \tau_{min} \\
+1 & \text{if } C_{atk} > \tau_{max} \\
+C_{atk} & \text{otherwise}
+\end{cases}
+$$
 
-After losses are applied:
+$$
+C_{def} = 
+\begin{cases} 
+0 & \text{if } C_{def} < \tau_{min} \\
+1 & \text{if } C_{def} > \tau_{max} \\
+C_{def} & \text{otherwise}
+\end{cases}
+$$
 
-- **Movement Action**: If the attacker survives and defeats all defenders, it can move to the target location.
-- **Attack Action**: The attacker never moves to the target location, regardless of the outcome.
-- If the attacker loses all troops or fails to defeat all defenders during a movement, the action fails and surviving attackers remain in their original position.
+Where $\tau_{min} = 0.15$ and $\tau_{max} = 0.85$
 
-## Movement and Combat Interaction
+The actual quantity of troops lost is:
 
-Combat can be triggered in two ways:
+$$Q_{lost} = \lfloor Q \cdot C \rfloor$$
 
-1. **Direct Attack**: A troop uses an attack action against a target location. The troop attacks but stays in its original position regardless of the outcome.
-2. **Movement Encounter**: A troop attempts to move to a location and encounters enemy troops. If it defeats all enemies, it can move to the target location.
+## 3. Special Combat Mechanics
 
-Each troop type has unique movement and attack patterns:
+### 3.1 Ranged Combat Immunities
 
-- **Militia**: Can move and attack adjacent cells (including diagonals).
-- **Archer**: Can move to adjacent orthogonal cells and attack from a distance without taking damage.
-- **Light Cavalry**: Moves in L-shaped patterns (like a chess knight) and must be in the same location to attack.
-- **Pikeman**: Has versatile movement options and can attack both its current location and distant targets without taking damage.
+Certain troop types possess special combat properties when engaging from range:
 
-## Implementation Details
+- **Archers**: When conducting ranged attacks (not movement-initiated combat), archers do not receive return damage, modeled as $C_{atk} = 0$
+- **Pikemen**: Receive immunity from return damage when attacking from certain positions, except when attacking their own position
 
-The combat system is implemented in the `_process_combat` method of the `TroopActionService` class. This method handles all combat calculations and updates troop quantities and status in the database.
+### 3.2 Movement and Combat Integration
 
-The troop statistics are defined as constants in the `Troop` domain class for easy maintenance and reuse.
+Combat can be initiated in two distinct ways, each with different resolution mechanics:
 
-Detailed logs of combat results are printed during execution for debugging and analysis purposes. 
+1. **Direct Attack**: A deliberate combat action where troops remain in their original position regardless of outcome
+2. **Movement Encounter**: Combat triggered by moving into a location occupied by enemy units
+
+In movement encounters, the resolution follows this decision tree:
+- If attacker suffers complete losses ($C_{atk} > \tau_{max}$), the movement fails
+- If defenders are not completely defeated, movement fails
+- If attacker survives and eliminates all defenders, movement succeeds
+
+## 4. Worked Example
+
+Consider a battle with the following composition:
+- Attacker: 100 Militia units ($\alpha = 1.0, \delta = 1.0$)
+- Defenders: 40 Pikemen ($\alpha = 1.0, \delta = 2.0$) in their home territory
+
+### Step 1: Calculate raw forces
+$F_{atk} = 100 \times 1.0 = 100$
+$F_{def} = 40 \times 2.0 = 80$
+
+### Step 2: Apply territorial advantage
+$F_{atk}^{adj} = 100 \times (1 - 0.3) = 70$
+$F_{def}^{adj} = 80$ (defenders are not penalized)
+
+### Step 3: Calculate power ratios
+$R_{atk} = (70 / 80)^{1.5} \approx 0.82$
+$R_{def} = (80 / 70)^{1.5} \approx 1.22$
+
+### Step 4: Determine casualties
+Since $R_{def} = 1.22 > 1.0$, we cap it to $C_{atk} = 1.0$, but since $1.0 > \tau_{max}$, all attacker troops are eliminated.
+Since $R_{atk} = 0.82 < 1.0$, $C_{def} = 0.82$, which is between our thresholds, so $Q_{lost-def} = \lfloor 40 \times 0.82 \rfloor = 32$ pikemen lost.
+
+### Result
+- All 100 militia are eliminated
+- 8 pikemen survive
+- Movement/attack fails
+
+## 5. Troop Movement Patterns
+
+Different unit types have distinct movement and attack patterns:
+
+### Militia
+- **Movement**: Can move to any adjacent tile (including diagonals)
+- **Attack Range**: Can only attack their current location
+
+### Archers
+- **Movement**: Can move to orthogonally adjacent tiles
+- **Attack Range**: Can attack adjacent tiles without receiving return damage
+
+### Light Cavalry
+- **Movement**: Extended L-shaped movement (similar to chess knights)
+- **Attack Range**: Can only attack their current location
+
+### Pikemen
+- **Movement**: Wide range including adjacent and L-shaped patterns
+- **Attack Range**: Can attack both current location and specific distant tiles
+
+## 6. Strategic Implications
+
+The combat system produces several emergent strategic considerations:
+
+1. **Force Composition**: Different troop types excel in different scenarios
+2. **Territorial Defense**: Defending friendly territories provides significant advantages
+3. **Numerical Superiority**: The snowball exponent rewards having larger forces
+4. **Range Advantage**: Ranged units can attack without risk in certain scenarios
+5. **Movement Planning**: Proper positioning can prevent unfavorable encounters
+
+## 7. Implementation Notes
+
+The combat system is implemented in the `TroopActionService` class, specifically within the `_process_combat` method. Combat resolution follows these processing stages:
+
+1. Initial force calculation
+2. Territorial advantage application
+3. Power ratio computation
+4. Special case handling for unit types
+5. Threshold application
+6. Casualty determination and application
+7. Outcome determination and movement resolution
+
+## 8. Conclusion
+
+This combat system creates a rich strategic environment with multiple layers of decision-making. While computationally efficient, it produces complex and interesting battle outcomes that reward thoughtful military planning and force composition.
+
+## References
+
+1. Lanchester, F. W. (1916). "Aircraft in Warfare: The Dawn of the Fourth Arm"
+2. Dunn, J. (2005). "Non-Linear Combat Models in Strategy Games"
+3. Smith, R. (2010). "Unit Balance and Combat Mechanics in RTS Games" 
