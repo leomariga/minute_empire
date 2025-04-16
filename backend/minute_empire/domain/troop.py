@@ -19,6 +19,14 @@ class Troop:
         TroopType.PIKEMAN: 1
     }
     
+    # Combat statistics for each troop type
+    TROOP_STATS = {
+        TroopType.MILITIA: {"atk": 1, "def": 1},
+        TroopType.ARCHER: {"atk": 1, "def": 0.5},
+        TroopType.LIGHT_CAVALRY: {"atk": 1, "def": 1},
+        TroopType.PIKEMAN: {"atk": 1, "def": 2}
+    }
+    
     @staticmethod
     def get_training_cost(troop_type: TroopType, quantity: int) -> Dict[str, int]:
         """Calculate the total training cost for a given troop type and quantity"""

@@ -21,6 +21,7 @@ class TroopMode(str, Enum):
     DEFEND = "defend"
     MOVE = "move"
     RETURN = "return"
+    DEAD = "dead"
 
 class ConstructionType(str, Enum):
     CITY_CENTER = "city_center"
@@ -124,7 +125,7 @@ class TroopInDB(BaseModel):
     type: TroopType
     mode: TroopMode = Field(default=TroopMode.IDLE)
     home_id: str  # Reference to village ID
-    quantity: int = Field(..., gt=0)
+    quantity: int = Field(..., ge=0)
     location: Location
     backpack: Resources = Field(default_factory=Resources)  # Resources being carried
     created_at: datetime

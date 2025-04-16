@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from minute_empire.schemas.schemas import TroopInDB
+from minute_empire.schemas.schemas import TroopInDB, TroopMode
 from minute_empire.db.mongodb import get_db
 from bson import ObjectId
 
@@ -15,17 +15,34 @@ class TroopsRepository:
             if troop_data is None:
                 return None
             
-            # Convert DB dict to Pydantic model
-            return TroopInDB(**troop_data)
+            # Convert DB dict to Pydantic model with error handling
+            try:
+                return TroopInDB(**troop_data)
+            except Exception as e:
+                print(f"Error loading troop {troop_id}: {str(e)}")
+                return None
     
     async def get_by_home(self, home_id: str) -> List[TroopInDB]:
         """Get all troops belonging to a specific village"""
         async with get_db() as db:
-            cursor = db[self.COLLECTION].find({"home_id": home_id})
+            # Exclude troops with quantity=0 or mode=DEAD
+            cursor = db[self.COLLECTION].find({
+                "home_id": home_id,
+                "quantity": {"$gt": 0},
+                "mode": {"$ne": TroopMode.DEAD.value}
+            })
             troops_data = await cursor.to_list(length=100)  # Limit to 100 troops per village
             
-            # Convert to domain objects
-            return [TroopInDB(**troop_data) for troop_data in troops_data]
+            # Convert to domain objects with error handling
+            valid_troops = []
+            for troop_data in troops_data:
+                try:
+                    valid_troops.append(TroopInDB(**troop_data))
+                except Exception as e:
+                    print(f"Error converting troop data for home {home_id}: {str(e)}")
+                    continue
+                    
+            return valid_troops
     
     async def save(self, troop: TroopInDB) -> bool:
         """Save changes to a troop back to the database"""
@@ -78,11 +95,23 @@ class TroopsRepository:
     async def get_all(self) -> List[TroopInDB]:
         """Get all troops in the game world"""
         async with get_db() as db:
-            cursor = db[self.COLLECTION].find({})
+            # Exclude troops with quantity=0 or marked as DEAD
+            cursor = db[self.COLLECTION].find({
+                "quantity": {"$gt": 0},
+                "mode": {"$ne": TroopMode.DEAD.value}
+            })
             troops_data = await cursor.to_list(length=1000)  # Limit to 1000 troops
             
-            # Convert to domain objects
-            return [TroopInDB(**troop_data) for troop_data in troops_data]
+            # Convert to domain objects with error handling
+            valid_troops = []
+            for troop_data in troops_data:
+                try:
+                    valid_troops.append(TroopInDB(**troop_data))
+                except Exception as e:
+                    print(f"Error converting troop data: {str(e)}")
+                    continue
+                    
+            return valid_troops
             
     async def update(self, troop_id: str, update_data: Dict[str, Any]) -> bool:
         """Update a troop with the given data"""
@@ -91,4 +120,30 @@ class TroopsRepository:
                 {"_id": troop_id},
                 {"$set": update_data}
             )
-            return result.modified_count > 0 
+            return result.modified_count > 0
+    
+    async def get_troops_at_location(self, x: int, y: int, exclude_dead: bool = True) -> List[TroopInDB]:
+        """Get all troops at a specific location"""
+        query = {
+            "location.x": x,
+            "location.y": y,
+            "quantity": {"$gt": 0}  # Only include troops with quantity > 0
+        }
+        
+        if exclude_dead:
+            query["mode"] = {"$ne": TroopMode.DEAD.value}
+            
+        async with get_db() as db:
+            cursor = db[self.COLLECTION].find(query)
+            troops_data = await cursor.to_list(length=100)  # Limit to 100 troops per location
+            
+            # Convert to domain objects with error handling
+            valid_troops = []
+            for troop_data in troops_data:
+                try:
+                    valid_troops.append(TroopInDB(**troop_data))
+                except Exception as e:
+                    print(f"Error converting troop data at location ({x},{y}): {str(e)}")
+                    continue
+                    
+            return valid_troops 
