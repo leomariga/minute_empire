@@ -2,10 +2,17 @@ from fastapi import FastAPI, HTTPException, Depends, Cookie, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from typing import Optional
+import asyncio
+import logging
 
 from minute_empire.services.registration_service import RegistrationService
 from minute_empire.services.authentication_service import AuthenticationService
 from minute_empire.services.command_service import CommandService
+from minute_empire.services.task_scheduler import task_scheduler
+from minute_empire.services.troop_action_service import TroopActionService
+from minute_empire.services.timed_tasks_service import TimedConstructionService
+from minute_empire.repositories.village_repository import VillageRepository
+from datetime import datetime
 from minute_empire.api.api_models import (
     RegistrationRequest, 
     RegistrationResponse, 
@@ -32,7 +39,17 @@ from minute_empire.domain.world import World
 from minute_empire.domain.building import Building
 from minute_empire.domain.resource_field import ResourceProducer
 from minute_empire.domain.troop import Troop
-from minute_empire.schemas.schemas import ConstructionType
+from minute_empire.schemas.schemas import ConstructionType, TaskType
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Minute Empire API",
@@ -62,6 +79,48 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 # Initialize services
 auth_service = AuthenticationService()
 registration_service = RegistrationService()
+troop_action_service = TroopActionService()
+timed_tasks_service = TimedConstructionService()
+village_repository = VillageRepository()
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize services and load all pending tasks on startup"""
+    logger.info("Starting Minute Empire API")
+    
+    # Start the task scheduler
+    asyncio.create_task(task_scheduler.run_scheduler())
+    
+    try:
+        now = datetime.utcnow()
+        
+        # 1. First, complete all tasks that are already due at startup
+        # This ensures tasks are completed in the correct chronological order
+        completion_results = await timed_tasks_service.complete_all_tasks_until(now)
+        
+        if completion_results.get("total_tasks_completed", 0) > 0:
+            logger.info(f"Completed {completion_results['total_tasks_completed']} overdue tasks at startup")
+            logger.info(f"Details: {completion_results['construction_tasks_completed']} construction, "
+                       f"{completion_results['troop_training_tasks_completed']} troop training, "
+                       f"{completion_results['troop_action_tasks_completed']} troop actions")
+        
+        # 2. Schedule all future tasks for execution
+        scheduling_results = await timed_tasks_service.schedule_pending_tasks(now)
+        
+        if scheduling_results.get("total_tasks_scheduled", 0) > 0:
+            logger.info(f"Scheduled {scheduling_results['total_tasks_scheduled']} future tasks at startup")
+            logger.info(f"Details: {scheduling_results['construction_tasks_scheduled']} construction, "
+                       f"{scheduling_results['troop_training_tasks_scheduled']} troop training, "
+                       f"{scheduling_results['troop_action_tasks_scheduled']} troop actions")
+            
+        if scheduling_results.get("errors", []):
+            for error in scheduling_results["errors"]:
+                logger.error(f"Error during task scheduling: {error}")
+        
+    except Exception as e:
+        logger.error(f"Error during startup processing: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
 
 @app.get("/")
 async def root():
@@ -355,7 +414,6 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     """Get map information including bounds and all villages."""
     from minute_empire.repositories.village_repository import VillageRepository
     from minute_empire.services.resource_service import ResourceService
-    from minute_empire.services.troop_action_service import TroopActionService
     from minute_empire.repositories.troops_repository import TroopsRepository
     from minute_empire.repositories.troop_action_repository import TroopActionRepository
     from datetime import datetime
@@ -364,21 +422,18 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     # Initialize repositories and services
     village_repo = VillageRepository()
     resource_service = ResourceService()
-    troop_action_service = TroopActionService()
     troops_repo = TroopsRepository()
     troop_action_repo = TroopActionRepository()
     
     try:
-        # Process all pending troop actions first
+        # Update the user's villages first
         try:
-            troop_action_result = await troop_action_service.process_pending_troop_actions()
-            print(f"Processed troop actions: {troop_action_result['message']}")
-            if troop_action_result.get('errors') and len(troop_action_result['errors']) > 0:
-                print(f"Troop action errors: {troop_action_result['errors']}")
-        except Exception as action_error:
-            print(f"Error processing troop actions: {str(action_error)}")
-            print(traceback.format_exc())
-            # Continue with the rest of the function even if action processing fails
+            user_villages = await resource_service.update_all_user_villages(current_user["id"])
+            logger.info(f"Updated {len(user_villages)} villages for user {current_user['id']}")
+        except Exception as resource_error:
+            logger.error(f"Error updating user villages: {str(resource_error)}")
+            logger.error(traceback.format_exc())
+            # Continue even if resource update fails
         
         # Get map bounds from World
         x_min, x_max, y_min, y_max = World.get_map_bounds()
@@ -387,10 +442,10 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
         # Get all villages
         try:
             all_villages = await village_repo.get_all()
-            print(f"Retrieved {len(all_villages) if all_villages else 0} villages")
+            logger.info(f"Retrieved {len(all_villages) if all_villages else 0} villages")
         except Exception as village_error:
-            print(f"Error getting villages: {str(village_error)}")
-            print(traceback.format_exc())
+            logger.error(f"Error getting villages: {str(village_error)}")
+            logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=500, 
                 detail=f"Error retrieving villages: {str(village_error)}"
@@ -432,121 +487,117 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                     
                     # Only include detailed information for owned villages
                     if is_owned:
-                        # Update resources before sending
-                        updated_village = await resource_service.update_village_resources(village.id)
+                        # Get resource information
+                        resource_rates = village.get_resource_rates()
+                        resources_info = {}
+                        for resource_type in ["wood", "stone", "iron", "food"]:
+                            current = getattr(village.resources, resource_type, 0)
+                            rate = resource_rates.get(resource_type, 0)
+                            capacity = village.calculate_storage_capacity(resource_type)
+                            resources_info[resource_type] = ResourceInfo(
+                                current=current,
+                                rate=rate,
+                                capacity=capacity
+                            )
+                        village_data.resources = resources_info
                         
-                        if updated_village:
-                            # Get resource information
-                            resource_rates = updated_village.get_resource_rates()
-                            resources_info = {}
-                            for resource_type in ["wood", "stone", "iron", "food"]:
-                                current = getattr(updated_village.resources, resource_type, 0)
-                                rate = resource_rates.get(resource_type, 0)
-                                capacity = updated_village.calculate_storage_capacity(resource_type)
-                                resources_info[resource_type] = ResourceInfo(
-                                    current=current,
-                                    rate=rate,
-                                    capacity=capacity
-                                )
-                            village_data.resources = resources_info
+                        # Add base costs and creation times
+                        village_data.base_costs = {
+                            "buildings": Building.BASE_CREATION_COSTS,
+                            "fields": ResourceProducer.BASE_CREATION_COSTS,
+                            "troops": Troop.TRAINING_COSTS
+                        }
+                        
+                        # Base creation times (in minutes)
+                        village_data.base_creation_times = {
+                            "buildings": Building.BASE_CREATION_TIMES,
+                            "fields": ResourceProducer.BASE_CREATION_TIMES,
+                            "troops": Troop.TRAINING_TIMES
+                        }
+                        
+                        # Get resource fields information
+                        if hasattr(village._data, 'resource_fields'):
+                            resource_fields_info = []
+                            for field in village._data.resource_fields:
+                                if field is not None:
+                                    field_producer = village.get_resource_field(field.slot)
+                                    if field_producer:
+                                        field_info = ResourceFieldsInfo(
+                                            type=field.type,
+                                            level=field.level,
+                                            slot=field.slot,
+                                            current_production_rate=field_producer.get_production_rate(),
+                                            upgrade_cost=field_producer.get_upgrade_cost(),
+                                            upgrade_time=field_producer.get_upgrade_time(),
+                                            next_level_production_rate=field_producer.get_production_rate(field.level + 1)
+                                        )
+                                        resource_fields_info.append(field_info)
+                            village_data.resource_fields = resource_fields_info
+                        
+                        # Get city information
+                        if hasattr(village, 'city'):
+                            city_info = CityInfo()
                             
-                            # Add base costs and creation times
-                            village_data.base_costs = {
-                                "buildings": Building.BASE_CREATION_COSTS,
-                                "fields": ResourceProducer.BASE_CREATION_COSTS,
-                                "troops": Troop.TRAINING_COSTS
-                            }
-                            
-                            # Base creation times (in minutes)
-                            village_data.base_creation_times = {
-                                "buildings": Building.BASE_CREATION_TIMES,
-                                "fields": ResourceProducer.BASE_CREATION_TIMES,
-                                "troops": Troop.TRAINING_TIMES
-                            }
-                            
-                            # Get resource fields information
-                            if hasattr(updated_village._data, 'resource_fields'):
-                                resource_fields_info = []
-                                for field in updated_village._data.resource_fields:
-                                    if field is not None:
-                                        field_producer = updated_village.get_resource_field(field.slot)
-                                        if field_producer:
-                                            field_info = ResourceFieldsInfo(
-                                                type=field.type,
-                                                level=field.level,
-                                                slot=field.slot,
-                                                current_production_rate=field_producer.get_production_rate(),
-                                                upgrade_cost=field_producer.get_upgrade_cost(),
-                                                upgrade_time=field_producer.get_upgrade_time(),
-                                                next_level_production_rate=field_producer.get_production_rate(field.level + 1)
-                                            )
-                                            resource_fields_info.append(field_info)
-                                village_data.resource_fields = resource_fields_info
-                            
-                            # Get city information
-                            if hasattr(updated_village, 'city'):
-                                city_info = CityInfo()
-                                
-                                # Process constructions
-                                constructions_info = []
-                                for construction in updated_village.city.constructions:
-                                    building = updated_village.get_building(construction.slot)
-                                    if building:
-                                        # Skip production bonuses for buildings that don't have them
-                                        no_bonus_types = [
-                                            ConstructionType.BARRAKS, 
-                                            ConstructionType.ARCHERY, 
-                                            ConstructionType.STABLE,
-                                            ConstructionType.RALLY_POINT,
-                                            ConstructionType.HIDE_SPOT
-                                        ]
+                            # Process constructions
+                            constructions_info = []
+                            for construction in village.city.constructions:
+                                building = village.get_building(construction.slot)
+                                if building:
+                                    # Skip production bonuses for buildings that don't have them
+                                    no_bonus_types = [
+                                        ConstructionType.BARRAKS, 
+                                        ConstructionType.ARCHERY, 
+                                        ConstructionType.STABLE,
+                                        ConstructionType.RALLY_POINT,
+                                        ConstructionType.HIDE_SPOT
+                                    ]
+                                    
+                                    # Base construction info without bonuses
+                                    construction_info_data = {
+                                        "type": building.type,
+                                        "level": building.level,
+                                        "slot": building.slot,
+                                        "upgrade_cost": building.get_upgrade_cost(),
+                                        "upgrade_time": building.get_upgrade_time()
+                                    }
+                                    
+                                    # Add production bonuses only for buildings that have them
+                                    if building.type not in no_bonus_types:
+                                        construction_info_data["production_bonus"] = building.get_production_bonus()
+                                        construction_info_data["next_level_bonus"] = building.get_production_bonus(level=building.level + 1)
                                         
-                                        # Base construction info without bonuses
-                                        construction_info_data = {
-                                            "type": building.type,
-                                            "level": building.level,
-                                            "slot": building.slot,
-                                            "upgrade_cost": building.get_upgrade_cost(),
-                                            "upgrade_time": building.get_upgrade_time()
-                                        }
-                                        
-                                        # Add production bonuses only for buildings that have them
-                                        if building.type not in no_bonus_types:
-                                            construction_info_data["production_bonus"] = building.get_production_bonus()
-                                            construction_info_data["next_level_bonus"] = building.get_production_bonus(level=building.level + 1)
-                                            
-                                        # Create the ConstructionInfo object
-                                        construction_info = ConstructionInfo(**construction_info_data)
-                                        constructions_info.append(construction_info)
-                                
-                                city_info.constructions = constructions_info
-                                
-                                village_data.city = city_info
+                                    # Create the ConstructionInfo object
+                                    construction_info = ConstructionInfo(**construction_info_data)
+                                    constructions_info.append(construction_info)
                             
-                            # Add construction tasks directly to the village
-                            if hasattr(updated_village._data, 'construction_tasks'):
-                                # Only include non-processed tasks
-                                village_data.construction_tasks = [
-                                    task for task in updated_village._data.construction_tasks
-                                    if not task.processed
-                                ]
-                                
-                            # Add troop training tasks directly to the village
-                            if hasattr(updated_village._data, 'troop_training_tasks'):
-                                # Only include non-processed tasks
-                                village_data.troop_training_tasks = [
-                                    task for task in updated_village._data.troop_training_tasks
-                                    if not task.processed
-                                ]
-                                
-                            # Add population information
-                            village_data.total_population = updated_village.getTotalPopulation()
-                            village_data.working_population = updated_village.getWorkingPopulation()
-                    
+                            city_info.constructions = constructions_info
+                            
+                            village_data.city = city_info
+                        
+                        # Add construction tasks directly to the village
+                        if hasattr(village._data, 'construction_tasks'):
+                            # Only include non-processed tasks
+                            village_data.construction_tasks = [
+                                task for task in village._data.construction_tasks
+                                if not task.processed
+                            ]
+                            
+                        # Add troop training tasks directly to the village
+                        if hasattr(village._data, 'troop_training_tasks'):
+                            # Only include non-processed tasks
+                            village_data.troop_training_tasks = [
+                                task for task in village._data.troop_training_tasks
+                                if not task.processed
+                            ]
+                            
+                        # Add population information
+                        village_data.total_population = village.getTotalPopulation()
+                        village_data.working_population = village.getWorkingPopulation()
+                
                     villages_data.append(village_data)
             except Exception as village_error:
-                print(f"Error processing village {i}: {village_error}")
-                print(traceback.format_exc())
+                logger.error(f"Error processing village {i}: {village_error}")
+                logger.error(traceback.format_exc())
                 continue
         
         # Get all troops data
@@ -571,8 +622,8 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                 
                 all_troops.append(TroopInfo(**troop_data))
         except Exception as troop_error:
-            print(f"Error getting troops: {str(troop_error)}")
-            print(traceback.format_exc())
+            logger.error(f"Error getting troops: {str(troop_error)}")
+            logger.error(traceback.format_exc())
             # Continue with empty troop list
         
         # Get all troop actions data
@@ -594,8 +645,8 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                     }
                     all_troop_actions.append(TroopActionInfo(**action_data))
         except Exception as action_error:
-            print(f"Error getting troop actions: {str(action_error)}")
-            print(traceback.format_exc())
+            logger.error(f"Error getting troop actions: {str(action_error)}")
+            logger.error(traceback.format_exc())
             # Continue with empty actions list
         
         # Create the final response
@@ -615,15 +666,15 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
             )
             return response
         except Exception as response_error:
-            print(f"Error creating response: {str(response_error)}")
-            print(traceback.format_exc())
+            logger.error(f"Error creating response: {str(response_error)}")
+            logger.error(traceback.format_exc())
             raise HTTPException(
                 status_code=500, 
                 detail=f"Error creating response: {str(response_error)}"
             )
     except Exception as e:
-        print(f"Map info error: {str(e)}")
-        print(traceback.format_exc())
+        logger.error(f"Map info error: {str(e)}")
+        logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
 
 # Import and include routers

@@ -2,11 +2,18 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 from bson import ObjectId
 from statistics import median
+import asyncio
+import logging
 from minute_empire.repositories.village_repository import VillageRepository
 from minute_empire.repositories.troops_repository import TroopsRepository
 from minute_empire.repositories.troop_action_repository import TroopActionRepository
 from minute_empire.schemas.schemas import ActionType, TroopType, TroopMode, Location
 from minute_empire.domain.troop import Troop
+from minute_empire.services.task_scheduler import task_scheduler
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class TroopActionService:
     """Service for managing troop actions like movement and combat"""
@@ -116,6 +123,10 @@ class TroopActionService:
         # 1 minute per tile is a reasonable starting point
         movement_time_minutes = distance
         
+        # Calculate completion time
+        now = datetime.utcnow()
+        completion_time = now + timedelta(minutes=movement_time_minutes)
+        
         # Create action data
         action_data = {
             "troop_id": troop_id,
@@ -128,8 +139,8 @@ class TroopActionService:
                 "x": target_x,
                 "y": target_y
             },
-            "started_at": datetime.utcnow(),
-            "completion_time": datetime.utcnow() + timedelta(minutes=movement_time_minutes),
+            "started_at": now,
+            "completion_time": completion_time,
             "processed": False
         }
         
@@ -144,13 +155,25 @@ class TroopActionService:
             if not update_result:
                 return {"success": False, "error": f"Failed to update troop status to {TroopMode.MOVE}"}
             
+            # Schedule the action to be completed at the completion time
+            await task_scheduler.schedule_task(
+                task_id=action.id,
+                execution_time=completion_time,
+                callback=self.complete_troop_action,
+                action_id=action.id,
+                completion_time=completion_time
+            )
+            
+            logger.info(f"Scheduled troop movement: Troop {troop_id} from ({troop.location.x}, {troop.location.y}) to ({target_x}, {target_y}) - completion at {completion_time}")
+            
             return {
                 "success": True,
                 "action_id": action.id,
                 "message": f"Troop {troop_id} is moving to ({target_x}, {target_y})",
-                "estimated_completion": action.completion_time
+                "estimated_completion": completion_time
             }
         except Exception as e:
+            logger.error(f"Error creating movement action: {str(e)}")
             return {"success": False, "error": f"Error creating movement action: {str(e)}"}
     
     async def start_attack_action(self, troop_id: str, target_x: int, target_y: int, village_id: str) -> Dict[str, Any]:
@@ -178,6 +201,10 @@ class TroopActionService:
         # Attack takes longer than movement
         attack_time_minutes = distance * 2
         
+        # Calculate completion time
+        now = datetime.utcnow()
+        completion_time = now + timedelta(minutes=attack_time_minutes)
+        
         # Create action data
         action_data = {
             "troop_id": troop_id,
@@ -190,8 +217,8 @@ class TroopActionService:
                 "x": target_x,
                 "y": target_y
             },
-            "started_at": datetime.utcnow(),
-            "completion_time": datetime.utcnow() + timedelta(minutes=attack_time_minutes),
+            "started_at": now,
+            "completion_time": completion_time,
             "processed": False
         }
         
@@ -206,87 +233,98 @@ class TroopActionService:
             if not update_result:
                 return {"success": False, "error": f"Failed to update troop status to {TroopMode.ATTACK}"}
             
+            # Schedule the action to be completed at the completion time
+            await task_scheduler.schedule_task(
+                task_id=action.id,
+                execution_time=completion_time,
+                callback=self.complete_troop_action,
+                action_id=action.id,
+                completion_time=completion_time
+            )
+            
+            logger.info(f"Scheduled troop attack: Troop {troop_id} from ({troop.location.x}, {troop.location.y}) attacking ({target_x}, {target_y}) - completion at {completion_time}")
+            
             return {
                 "success": True,
                 "action_id": action.id,
                 "message": f"Troop {troop_id} is attacking location ({target_x}, {target_y})",
-                "estimated_completion": action.completion_time
+                "estimated_completion": completion_time
             }
         except Exception as e:
+            logger.error(f"Error creating attack action: {str(e)}")
             return {"success": False, "error": f"Error creating attack action: {str(e)}"}
     
-    async def process_pending_troop_actions(self) -> Dict[str, Any]:
+    async def complete_troop_action(self, action_id: str, completion_time: datetime) -> Dict[str, Any]:
         """
-        Process all troop actions that have reached their completion time.
-        This includes movement and attack actions.
+        Complete a troop action at its scheduled time.
+        This is called by the task scheduler when the action's completion time is reached.
         
+        Args:
+            action_id: The ID of the action to complete
+            completion_time: The scheduled completion time of the action
+            
         Returns:
-            Dict[str, Any]: Summary of processed actions
+            Dict[str, Any]: Result of the operation
         """
-        # Get all pending (unprocessed) actions where completion_time <= now
-        pending_actions = await self.action_repository.get_pending_actions()
-        
-        if not pending_actions:
-            return {"success": True, "processed_count": 0, "message": "No pending troop actions found"}
-        
-        # Debug print - number of pending actions found
-        print(f"[TroopActionService] Found {len(pending_actions)} pending troop actions to process")
-        
-        processed_count = 0
-        processed_moves = 0
-        processed_attacks = 0
-        processed_combats = 0
-        errors = []
-        
-        # Process each pending action
-        for action in pending_actions:
-            try:
-                # Get the troop associated with this action
-                troop = await self.troops_repository.get_by_id(action.troop_id)
-                if not troop:
-                    errors.append(f"Troop {action.troop_id} not found for action {action.id}")
-                    continue
+        try:
+            # Get the action
+            action = await self.action_repository.get_by_id(action_id)
+            if not action:
+                logger.error(f"Action {action_id} not found for completion")
+                return {"success": False, "error": "Action not found"}
                 
-                # Process based on action type
-                if action.action_type == ActionType.MOVE:
-                    # Check if there are enemy troops at the target location
-                    enemy_troops = await self._get_enemy_troops_at_location(
-                        troop.home_id, action.target_location.x, action.target_location.y
+            # Get the troop
+            troop = await self.troops_repository.get_by_id(action.troop_id)
+            if not troop:
+                logger.error(f"Troop {action.troop_id} not found for action {action_id}")
+                await self.action_repository.mark_processed(action_id)
+                return {"success": False, "error": "Troop not found"}
+            
+            logger.info(f"Completing action {action_id} for troop {troop.id}: {action.action_type.value} to ({action.target_location.x}, {action.target_location.y})")
+            
+            # Initialize a list to track villages that need resource updates
+            involved_villages = set()
+            
+            # Add attacker's home village to the list
+            involved_villages.add(troop.home_id)
+            
+            # IMPORTANT: Update resources for all involved villages before processing the action
+            # This is necessary for future features like changing food consumption when troops die
+            # or resources being affected by combat
+            
+            # Process based on action type
+            result = {"success": True, "message": "Action completed successfully"}
+            
+            if action.action_type == ActionType.MOVE:
+                # Check if there are enemy troops at the target location
+                enemy_troops = await self._get_enemy_troops_at_location(
+                    troop.home_id, action.target_location.x, action.target_location.y
+                )
+                
+                # Add home villages of all enemy troops to the involved villages
+                for enemy_troop in enemy_troops:
+                    involved_villages.add(enemy_troop.home_id)
+                
+                # Update resources for all involved villages before combat
+                await self._update_all_village_resources(involved_villages, completion_time)
+                
+                if enemy_troops:
+                    # Combat occurs when moving to a location with enemy troops
+                    combat_result = await self._process_combat(
+                        attacker_troop=troop,
+                        defender_troops=enemy_troops,
+                        target_location=action.target_location,
+                        is_movement=True,
+                        start_location=action.start_location
                     )
                     
-                    if enemy_troops:
-                        # Combat occurs when moving to a location with enemy troops
-                        combat_result = await self._process_combat(
-                            attacker_troop=troop,
-                            defender_troops=enemy_troops,
-                            target_location=action.target_location,
-                            is_movement=True,
-                            start_location=action.start_location
-                        )
-                        processed_combats += 1
-                        
-                        # If the attacker lost all troops or didn't defeat all defenders, don't move
-                        if combat_result["attacker_all_dead"] or not combat_result["all_defenders_defeated"]:
-                            # Don't move, update only mode if alive
-                            if not combat_result["attacker_all_dead"]:
-                                await self.troops_repository.update(troop.id, {"mode": TroopMode.IDLE.value})
-                        else:
-                            # Attacker won, can move to the location
-                            update_data = {
-                                "location": {
-                                    "x": action.target_location.x,
-                                    "y": action.target_location.y
-                                },
-                                "mode": TroopMode.IDLE.value
-                            }
-                            update_result = await self.troops_repository.update(troop.id, update_data)
-                            if update_result:
-                                processed_moves += 1
-                                print(f"[TroopActionService] MOVE + COMBAT completed: Troop {troop.id} moved from ({action.start_location.x},{action.start_location.y}) to ({action.target_location.x},{action.target_location.y}) after combat")
-                            else:
-                                errors.append(f"Failed to update troop {troop.id} location after successful combat")
+                    # If the attacker lost all troops or didn't defeat all defenders, don't move
+                    if combat_result["attacker_all_dead"] or not combat_result["all_defenders_defeated"]:
+                        # Don't move, update only mode if alive
+                        if not combat_result["attacker_all_dead"]:
+                            await self.troops_repository.update(troop.id, {"mode": TroopMode.IDLE.value})
                     else:
-                        # No enemy troops, just move
+                        # Attacker won, can move to the location
                         update_data = {
                             "location": {
                                 "x": action.target_location.x,
@@ -294,62 +332,107 @@ class TroopActionService:
                             },
                             "mode": TroopMode.IDLE.value
                         }
-                        
                         update_result = await self.troops_repository.update(troop.id, update_data)
                         if update_result:
-                            processed_moves += 1
-                            print(f"[TroopActionService] MOVE completed: Troop {troop.id} moved from ({action.start_location.x},{action.start_location.y}) to ({action.target_location.x},{action.target_location.y})")
+                            logger.info(f"Moved troop {troop.id} to ({action.target_location.x}, {action.target_location.y}) after combat")
                         else:
-                            errors.append(f"Failed to update troop {troop.id} location for move action")
+                            logger.error(f"Failed to update troop {troop.id} location after combat")
+                            
+                    result["combat"] = combat_result
+                else:
+                    # No enemy troops, just move
+                    
+                    update_data = {
+                        "location": {
+                            "x": action.target_location.x,
+                            "y": action.target_location.y
+                        },
+                        "mode": TroopMode.IDLE.value
+                    }
+                    
+                    update_result = await self.troops_repository.update(troop.id, update_data)
+                    if update_result:
+                        logger.info(f"Moved troop {troop.id} to ({action.target_location.x}, {action.target_location.y})")
+                    else:
+                        logger.error(f"Failed to update troop {troop.id} location")
+                        result["success"] = False
+                        result["error"] = "Failed to update troop location"
+            
+            elif action.action_type == ActionType.ATTACK:
+                # Get enemy troops at the target location
+                enemy_troops = await self._get_enemy_troops_at_location(
+                    troop.home_id, action.target_location.x, action.target_location.y
+                )
                 
-                elif action.action_type == ActionType.ATTACK:
-                    # Get enemy troops at the target location
-                    enemy_troops = await self._get_enemy_troops_at_location(
-                        troop.home_id, action.target_location.x, action.target_location.y
+                # Add home villages of all enemy troops to the involved villages
+                for enemy_troop in enemy_troops:
+                    involved_villages.add(enemy_troop.home_id)
+                
+                # Find if there's a village at the target location
+                target_village = await self.village_repository.find_by_location(
+                    action.target_location.x, action.target_location.y
+                )
+                if target_village:
+                    involved_villages.add(target_village.id)
+                
+                # Update resources for all involved villages before combat
+                await self._update_all_village_resources(involved_villages, completion_time)
+                
+                if enemy_troops:
+                    # Combat occurs when there are enemy troops at the target location
+                    combat_result = await self._process_combat(
+                        attacker_troop=troop,
+                        defender_troops=enemy_troops,
+                        target_location=action.target_location,
+                        is_movement=False,
+                        start_location=action.start_location
                     )
                     
-                    if enemy_troops:
-                        # Combat occurs when there are enemy troops at the target location
-                        combat_result = await self._process_combat(
-                            attacker_troop=troop,
-                            defender_troops=enemy_troops,
-                            target_location=action.target_location,
-                            is_movement=False,
-                            start_location=action.start_location
-                        )
-                        processed_combats += 1
-                        processed_attacks += 1
-                        
-                        # For attack actions, we never move the troop to the target location
-                        # We just update the troop's mode back to IDLE if it survived
-                        if not combat_result["attacker_all_dead"]:
-                            await self.troops_repository.update(troop.id, {"mode": TroopMode.IDLE.value})
-                    else:
-                        # No enemies at target, just update mode back to idle
+                    # For attack actions, we never move the troop to the target location
+                    # We just update the troop's mode back to IDLE if it survived
+                    if not combat_result["attacker_all_dead"]:
                         await self.troops_repository.update(troop.id, {"mode": TroopMode.IDLE.value})
-                        processed_attacks += 1
-                        print(f"[TroopActionService] ATTACK completed but no enemies found: Troop {troop.id} attacked at ({action.target_location.x},{action.target_location.y})")
-                
-                # Mark action as processed regardless of type
-                await self.action_repository.mark_processed(action.id)
-                processed_count += 1
-                
+                        
+                    result["combat"] = combat_result
+                else:
+                    # No enemies at target, just update mode back to idle
+                    # Even without combat, still update resources for the attacker's home village
+                    await self._update_all_village_resources([troop.home_id], completion_time)
+                    
+                    await self.troops_repository.update(troop.id, {"mode": TroopMode.IDLE.value})
+                    logger.info(f"Attack completed for troop {troop.id} but no enemies found at ({action.target_location.x}, {action.target_location.y})")
+            
+            # Mark action as processed
+            await self.action_repository.mark_processed(action_id)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error completing troop action {action_id}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return {"success": False, "error": f"Error completing action: {str(e)}"}
+            
+    async def _update_all_village_resources(self, village_ids: set, target_time: datetime) -> None:
+        """
+        Update resources for all villages in the provided list up to the target time.
+        
+        Args:
+            village_ids: Set of village IDs to update
+            target_time: The time to update resources until
+        """
+        # Import here to avoid circular imports
+        from minute_empire.services.timed_tasks_service import TimedConstructionService
+        
+        timed_tasks_service = TimedConstructionService()
+        
+        for village_id in village_ids:
+            try:
+                logger.info(f"Updating resources for village {village_id} before troop action")
+                await timed_tasks_service.update_resources_until(village_id, target_time)
             except Exception as e:
-                errors.append(f"Error processing action {action.id}: {str(e)}")
-                print(f"[TroopActionService] Error processing action {action.id}: {str(e)}")
-        
-        if processed_count > 0:
-            print(f"[TroopActionService] Processed {processed_count} troop actions: {processed_moves} moves, {processed_attacks} attacks, {processed_combats} combats")
-        
-        return {
-            "success": True,
-            "processed_count": processed_count,
-            "processed_moves": processed_moves,
-            "processed_attacks": processed_attacks,
-            "processed_combats": processed_combats,
-            "errors": errors,
-            "message": f"Processed {processed_count} troop actions ({processed_moves} moves, {processed_attacks} attacks, {processed_combats} combats)"
-        }
+                logger.error(f"Error updating resources for village {village_id}: {str(e)}")
+                logger.error(traceback.format_exc())
     
     async def _get_enemy_troops_at_location(self, home_village_id: str, x: int, y: int) -> List[Any]:
         """
@@ -517,12 +600,8 @@ class TroopActionService:
                 all_defenders_defeated = False
         
         # Detailed combat log for debugging
-        print(f"[Combat] Attacker: {attacker_troop.type} x{attacker_troop.quantity} (ATK:{raw_attacker_atk}, DEF:{raw_attacker_def})")
-        print(f"[Combat] Defenders: {len(defender_troops)} troops (Total ATK:{raw_defender_atk}, Total DEF:{raw_defender_def})")
-        print(f"[Combat] After bonuses - Attacker: (ATK:{final_attacker_atk}, DEF:{final_attacker_def}), Defender: (ATK:{final_defender_atk}, DEF:{final_defender_def})")
-        print(f"[Combat] Snowball ratios - Attacker: {attacker_snowball_ratio}, Defender: {defender_snowball_ratio}")
-        print(f"[Combat] Losses - Attacker: {attacker_loss:.2f} ({attacker_quantity_lost} troops), Defender: {defender_loss:.2f}")
-        print(f"[Combat] Results - Attacker all dead: {attacker_all_dead}, All defenders defeated: {all_defenders_defeated}")
+        logger.info(f"Combat result: Attacker loss: {attacker_loss:.2f} ({attacker_quantity_lost} troops), Defender loss: {defender_loss:.2f}")
+        logger.info(f"Combat outcome: Attacker all dead: {attacker_all_dead}, All defenders defeated: {all_defenders_defeated}")
         
         return {
             "attacker_id": attacker_troop.id,

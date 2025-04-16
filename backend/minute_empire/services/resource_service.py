@@ -4,6 +4,11 @@ from minute_empire.domain.village import Village
 from minute_empire.repositories.village_repository import VillageRepository
 from minute_empire.schemas.schemas import TaskType, ConstructionTask, TroopTrainingTask
 from minute_empire.services.timed_tasks_service import TimedConstructionService
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class ResourceService:
     """Service for resource-related operations"""
@@ -15,8 +20,7 @@ class ResourceService:
     async def update_village_resources(self, village_id: str) -> Optional[Village]:
         """
         Update a village's resources based on elapsed time since last update.
-        Handles tasks that influence resource production rates by calculating
-        resources in segments based on task completion times.
+        Simplified version that just calculates resources from last update to now.
         
         Args:
             village_id: The ID of the village
@@ -24,111 +28,41 @@ class ResourceService:
         Returns:
             Updated Village object, or None if village not found
         """
-        print(f"\n[ResourceService] Updating resources for village: {village_id}")
+        logger.info(f"Updating resources for village: {village_id}")
         # Get the village
         village = await self.village_repository.get_by_id(village_id)
         if village is None:
-            print(f"[ResourceService] Village not found: {village_id}")
+            logger.error(f"Village not found: {village_id}")
             return None
         
         try:
-            # Get all completed but unprocessed construction tasks
+            # Calculate elapsed time since last update
             now = datetime.utcnow()
             last_update = village.res_update_at
-            resource_affecting_tasks = []
+            hours_elapsed = (now - last_update).total_seconds() / 3600
             
-            # Filter tasks that affect resource production
-            if hasattr(village._data, 'construction_tasks'):
-                for task in village._data.construction_tasks:
-                    # We're only interested in tasks that completed after the last update
-                    # but before the current update, and affect resource production
-                    if (task.completion_time > last_update and 
-                        task.completion_time <= now and 
-                        not task.processed and
-                        (task.task_type == TaskType.CREATE_FIELD or 
-                         task.task_type == TaskType.UPGRADE_FIELD or 
-                         task.task_type == TaskType.CREATE_BUILDING or 
-                         task.task_type == TaskType.UPGRADE_BUILDING)):
-                        
-                        resource_affecting_tasks.append(task)
-            
-            # Add troop training tasks to the list
-            if hasattr(village._data, 'troop_training_tasks'):
-                for task in village._data.troop_training_tasks:
-                    if (task.completion_time > last_update and 
-                        task.completion_time <= now and 
-                        not task.processed):
-                        
-                        resource_affecting_tasks.append(task)
-            
-            # Sort tasks by completion time
-            resource_affecting_tasks.sort(key=lambda t: t.completion_time)
-            
-            print(f"[ResourceService] Found {len(resource_affecting_tasks)} resource-affecting tasks to process")
-            
-            # Calculate resources in segments
-            if not resource_affecting_tasks:
-                # No tasks - just calculate for the whole period
-                hours_elapsed = (now - last_update).total_seconds() / 3600
-                print(f"[ResourceService] No resource-affecting tasks, updating for {hours_elapsed:.2f} hours")
-                village.update_resources(hours_elapsed)
-            else:
-                # First segment: from last update to first task completion
-                start_time = last_update
+            if hours_elapsed <= 0:
+                logger.info(f"No time elapsed for village {village_id}, skipping update")
+                return village
                 
-                for i, task in enumerate(resource_affecting_tasks):
-                    # Calculate time segment
-                    segment_hours = (task.completion_time - start_time).total_seconds() / 3600
-                    print(f"[ResourceService] Updating resources for segment {i+1}: {segment_hours:.2f} hours")
-                    
-                    # Update resources for this segment
-                    if segment_hours > 0:
-                        village.update_resources(segment_hours)
-                    
-                    # Complete this task based on its type
-                    if isinstance(task, ConstructionTask):
-                        print(f"[ResourceService] Completing construction task {task.task_type} for {task.target_type} in slot {task.slot}")
-                        village.complete_construction_task(task)
-                    elif hasattr(task, 'troop_type'):
-                        print(f"[ResourceService] Processing troop training task for {task.troop_type}, quantity {task.quantity}")
-                        
-                        # Mark the task as processed directly 
-                        task.processed = True
-                        village.mark_as_changed()
-                        
-                        # Create the troop via the timed_tasks_service
-                        result = await self.timed_tasks_service.complete_troop_training_task(village_id, task.id)
-                        if not result.get("success"):
-                            print(f"[ResourceService] Failed to create troop: {result.get('error')}")
-                            # We still keep the task marked as processed even if troop creation fails
-                    
-                    # Next segment starts from this task's completion
-                    start_time = task.completion_time
-                
-                # Final segment: from last task to now
-                final_hours = (now - start_time).total_seconds() / 3600
-                if final_hours > 0:
-                    print(f"[ResourceService] Updating resources for final segment: {final_hours:.2f} hours")
-                    village.update_resources(final_hours)
+            logger.info(f"Updating resources for village {village_id} for {hours_elapsed:.2f} hours")
             
-            # Process any remaining tasks that don't affect resources
-            remaining_tasks = village.process_construction_tasks()
-            if remaining_tasks:
-                print(f"[ResourceService] Processed {len(remaining_tasks)} remaining tasks")
+            # Update resources for elapsed time
+            village.update_resources(hours_elapsed)
             
             # Update the resource update timestamp
             village.res_update_at = now
             
             # Save changes to database
             await self.village_repository.save(village)
-            print(f"[ResourceService] Successfully saved updated resources for village {village_id}")
+            logger.info(f"Successfully saved updated resources for village {village_id}")
             
             return village
             
         except Exception as e:
-            print(f"[ResourceService] Error updating village {village_id}: {str(e)}")
+            logger.error(f"Error updating village {village_id}: {str(e)}")
             import traceback
-            print(f"[ResourceService] Error traceback:\n{traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             return None
     
     async def update_all_user_villages(self, user_id: str) -> List[Village]:
@@ -141,14 +75,14 @@ class ResourceService:
         Returns:
             List of updated Village domain objects
         """
-        print(f"\n[ResourceService] Updating all villages for user: {user_id}")
+        logger.info(f"Updating all villages for user: {user_id}")
         # Get all user villages
         villages = await self.village_repository.get_by_owner(user_id)
         if not villages:  # Return empty list if no villages
-            print(f"[ResourceService] No villages found for user {user_id}")
+            logger.info(f"No villages found for user {user_id}")
             return []
             
-        print(f"[ResourceService] Found {len(villages)} villages for user {user_id}")
+        logger.info(f"Found {len(villages)} villages for user {user_id}")
         updated_villages = []
         
         # Update each village
@@ -156,12 +90,12 @@ class ResourceService:
             if village is None:  # Skip if village is None
                 continue
                 
-            print(f"[ResourceService] Processing village: {village.id}")
+            logger.info(f"Processing village: {village.id}")
             updated_village = await self.update_village_resources(village.id)
             if updated_village:
                 updated_villages.append(updated_village)
             
-        print(f"[ResourceService] Successfully updated {len(updated_villages)} villages")
+        logger.info(f"Successfully updated {len(updated_villages)} villages")
         return updated_villages
     
     async def calculate_time_to_resource_goal(self, village_id: str, resource_goals: Dict[str, float]) -> Dict[str, float]:
@@ -179,9 +113,6 @@ class ResourceService:
         village = await self.village_repository.get_by_id(village_id)
         if village is None:
             return {}
-        
-        # Process any completed tasks to ensure accurate rates
-        village.process_construction_tasks()
         
         # Get production rates
         rates = village.get_resource_rates()
