@@ -1,9 +1,11 @@
-from fastapi import FastAPI, HTTPException, Depends, Cookie, Response
+from fastapi import FastAPI, HTTPException, Depends, Cookie, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from typing import Optional
+from typing import Optional, List, Dict, Any
 import asyncio
 import logging
+from starlette.websockets import WebSocketState
+import traceback
 
 from minute_empire.services.registration_service import RegistrationService
 from minute_empire.services.authentication_service import AuthenticationService
@@ -11,6 +13,7 @@ from minute_empire.services.command_service import CommandService
 from minute_empire.services.task_scheduler import task_scheduler
 from minute_empire.services.troop_action_service import TroopActionService
 from minute_empire.services.timed_tasks_service import TimedConstructionService
+from minute_empire.services.websocket_service import websocket_service
 from minute_empire.repositories.village_repository import VillageRepository
 from datetime import datetime
 from minute_empire.api.api_models import (
@@ -409,9 +412,9 @@ async def execute_command(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/map/info", response_model=MapInfoResponse)
-async def get_map_info(current_user: dict = Depends(get_current_user)):
-    """Get map information including bounds and all villages."""
+# Add this reusable function for internal server use
+async def get_map_info_internal(user_id: str) -> Dict[str, Any]:
+    """Get map information for a user (internal function)"""
     from minute_empire.repositories.village_repository import VillageRepository
     from minute_empire.services.resource_service import ResourceService
     from minute_empire.repositories.troops_repository import TroopsRepository
@@ -426,10 +429,16 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
     troop_action_repo = TroopActionRepository()
     
     try:
+        # Get the user information
+        user = await auth_service.get_user_by_id(user_id)
+        if not user:
+            logger.error(f"User {user_id} not found")
+            return None
+            
         # Update the user's villages first
         try:
-            user_villages = await resource_service.update_all_user_villages(current_user["id"])
-            logger.info(f"Updated {len(user_villages)} villages for user {current_user['id']}")
+            user_villages = await resource_service.update_all_user_villages(user_id)
+            logger.info(f"Updated {len(user_villages)} villages for user {user_id}")
         except Exception as resource_error:
             logger.error(f"Error updating user villages: {str(resource_error)}")
             logger.error(traceback.format_exc())
@@ -446,10 +455,7 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
         except Exception as village_error:
             logger.error(f"Error getting villages: {str(village_error)}")
             logger.error(traceback.format_exc())
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Error retrieving villages: {str(village_error)}"
-            )
+            return None
         
         # Format village data for the map
         villages_data = []
@@ -457,7 +463,7 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
         for i, village in enumerate(all_villages or []):
             try:
                 if village is not None:
-                    is_owned = village.owner_id == current_user["id"]
+                    is_owned = village.owner_id == user_id
                     
                     # Extract location safely
                     x, y = 0, 0
@@ -484,6 +490,16 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                         user_info=user_info,
                         is_owned=is_owned
                     )
+                    
+                    # Initialize empty resources dictionary for all villages to prevent None values
+                    empty_resources = {}
+                    for resource_type in ["wood", "stone", "iron", "food"]:
+                        empty_resources[resource_type] = ResourceInfo(
+                            current=0,
+                            rate=0,
+                            capacity=0
+                        )
+                    village_data.resources = empty_resources
                     
                     # Only include detailed information for owned villages
                     if is_owned:
@@ -616,7 +632,7 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
                 }
                 
                 # Add mode and backpack only if the user owns the troop
-                if any(v.owner_id == current_user["id"] for v in all_villages if v and v.id == troop.home_id):
+                if any(v.owner_id == user_id for v in all_villages if v and v.id == troop.home_id):
                     troop_data["mode"] = troop.mode
                     troop_data["backpack"] = troop.backpack
                 
@@ -649,33 +665,139 @@ async def get_map_info(current_user: dict = Depends(get_current_user)):
             logger.error(traceback.format_exc())
             # Continue with empty actions list
         
-        # Create the final response
-        try:
-            response = MapInfoResponse(
-                map_bounds=MapBounds(
-                    x_min=x_min,
-                    x_max=x_max,
-                    y_min=y_min,
-                    y_max=y_max
-                ),
-                map_size=map_size,
-                villages=villages_data,
-                troops=all_troops,
-                troop_actions=all_troop_actions,
-                server_time=datetime.utcnow().isoformat()
-            )
-            return response
-        except Exception as response_error:
-            logger.error(f"Error creating response: {str(response_error)}")
-            logger.error(traceback.format_exc())
-            raise HTTPException(
-                status_code=500, 
-                detail=f"Error creating response: {str(response_error)}"
-            )
+        # Create the final response data
+        response_data = {
+            "map_bounds": {
+                "x_min": x_min,
+                "x_max": x_max,
+                "y_min": y_min,
+                "y_max": y_max
+            },
+            "map_size": map_size,
+            "villages": [village.dict() for village in villages_data],
+            "troops": [troop.dict() for troop in all_troops],
+            "troop_actions": [action.dict() for action in all_troop_actions],
+            "server_time": datetime.utcnow().isoformat()
+        }
+        
+        return response_data
+            
+    except Exception as e:
+        logger.error(f"Map info internal error: {str(e)}")
+        logger.error(traceback.format_exc())
+        return None
+
+@app.get("/map/info", response_model=MapInfoResponse)
+async def get_map_info(current_user: dict = Depends(get_current_user)):
+    """Get map information including bounds and all villages."""
+    try:
+        # Call the internal function
+        map_data = await get_map_info_internal(current_user["id"])
+        
+        if not map_data:
+            raise HTTPException(status_code=500, detail="Failed to get map information")
+        
+        # Convert dict to MapInfoResponse
+        return MapInfoResponse(**map_data)
     except Exception as e:
         logger.error(f"Map info error: {str(e)}")
+        import traceback
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates"""
+    user_id = None
+    try:
+        # Accept the connection
+        await websocket.accept()
+        
+        # Get the user token from the query parameters
+        token = websocket.query_params.get("token")
+        if not token:
+            await websocket.close(code=1008, reason="No authentication token provided")
+            return
+            
+        # Authenticate user
+        try:
+            import jwt
+            from minute_empire.services.authentication_service import SECRET_KEY, ALGORITHM
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            user_id = payload.get("sub")
+            
+            if user_id is None:
+                await websocket.close(code=1008, reason="Invalid token")
+                return
+                
+            # Get user from service
+            user = await auth_service.get_user_by_id(user_id)
+            if not user:
+                await websocket.close(code=1008, reason="User not found")
+                return
+                
+            # Get user's villages for village-specific broadcasting
+            user_villages = await village_repository.get_by_owner(user_id)
+            village_ids = [village.id for village in user_villages] if user_villages else []
+            
+            # Register the user with the websocket service
+            await websocket_service.connect(websocket, user_id, village_ids)
+            
+            # Send initial map data
+            try:
+                initial_map_data = await get_map_info_internal(user_id)
+                if initial_map_data:
+                    await websocket.send_json({
+                        "type": "map_update",
+                        "data": initial_map_data
+                    })
+            except Exception as map_error:
+                logger.error(f"Error sending initial map data: {str(map_error)}")
+                logger.error(traceback.format_exc())
+                # Continue even if initial map data fails - don't close the connection
+            
+            # Keep the connection alive and handle incoming messages
+            while True:
+                try:
+                    data = await websocket.receive_text()
+                    # Currently we don't process any incoming messages, just keep connection alive
+                    await websocket.send_json({"type": "ping", "data": "pong"})
+                except WebSocketDisconnect:
+                    # Client disconnected - this is normal behavior, not an error
+                    logger.info(f"WebSocket client disconnected: user_id={user_id}")
+                    if user_id:
+                        await websocket_service.disconnect(user_id)
+                    return
+                
+        except jwt.PyJWTError as jwt_error:
+            logger.error(f"WebSocket JWT error: {str(jwt_error)}")
+            # Only try to close the connection if it hasn't been closed already
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.close(code=1008, reason="Invalid token")
+            return
+        except Exception as auth_error:
+            logger.error(f"WebSocket authentication error: {str(auth_error)}")
+            logger.error(traceback.format_exc())
+            # Only try to close the connection if it hasn't been closed already
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.close(code=1008, reason="Authentication error")
+            return
+            
+    except WebSocketDisconnect:
+        # Handle disconnect during initial setup - normal behavior, not an error
+        logger.info(f"WebSocket client disconnected during setup: user_id={user_id}")
+        if user_id:
+            await websocket_service.disconnect(user_id)
+    except Exception as e:
+        logger.error(f"WebSocket error: {str(e)}")
+        logger.error(traceback.format_exc())
+        # Only try to close the connection if it hasn't been closed already
+        try:
+            if websocket.client_state != WebSocketState.DISCONNECTED:
+                await websocket.close(code=1011, reason="Internal server error")
+        except:
+            # Ignore any errors that occur while trying to close the connection
+            pass
 
 # Import and include routers
 # from app.api.api import api_router

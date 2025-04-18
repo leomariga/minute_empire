@@ -126,6 +126,7 @@
 <script>
 import apiService from '@/services/apiService';
 import authService from '@/services/authService';
+import websocketService from '@/services/websocketService'; // Import the websocket service
 import 'ol/ol.css';
 import Map from 'ol/Map';
 import View from 'ol/View';
@@ -246,6 +247,7 @@ export default {
         homeVillage: null,
         estimatedTime: 0
       },
+      websocketConnected: false // Track websocket connection status
     };
   },
   
@@ -282,17 +284,26 @@ export default {
         console.log('Fonts loaded, initializing map');
         this.initializeMap();
         this.startFocusCheck();
+        
+        // Connect to websocket after map initialization
+        this.connectToWebsocket();
       })
       .catch(error => {
         console.error('Font preloading failed, initializing map anyway:', error);
         this.initializeMap();
         this.startFocusCheck();
+        
+        // Connect to websocket after map initialization
+        this.connectToWebsocket();
       });
   },
   
   beforeDestroy() {
     console.log('Component beforeDestroy');
     window.removeEventListener('resize', this.handleResize);
+    
+    // Disconnect from websocket when component is destroyed
+    this.disconnectFromWebsocket();
     
     // Clear all timers
     if (this.focusCheckTimer) {
@@ -862,29 +873,43 @@ export default {
         village: village
       });
       
-      villageFeature.setStyle(new Style({
-        image: new Circle({
-          radius: 8,
-          fill: new Fill({
-            color: village.is_owned ? 'rgba(76, 175, 80, 0.8)' : 'rgba(244, 67, 54, 0.8)'
-          }),
-          stroke: new Stroke({
-            color: village.is_owned ? '#4CAF50' : '#F44336',
-            width: 2
-          })
-        }),
-        text: new Text({
-          text: village.name,
-          offsetY: -12,
-          fill: new Fill({
-            color: '#000'
-          }),
-          stroke: new Stroke({
-            color: '#fff',
-            width: 3
-          })
-        })
-      }));
+      // Create a style function that will update based on resolution
+      const styleFunction = (feature, resolution) => {
+        // Get current zoom level
+        const zoom = this.map.getView().getZoom();
+        
+        // Only show text when zoom is below 7
+        if (zoom < 7) {
+          // Calculate a dynamic offset based on resolution
+          // As resolution decreases (zoom in), the offset needs to increase
+          const basePixelOffset = -50; // Base offset in pixels
+          
+          // Scale factor to convert from pixels to map units based on resolution
+          // As we zoom in (resolution decreases), the offset in map units increases
+          const scaleOffset = 1250 / resolution; // Adjust the 0.1 value as needed for proper scaling
+          
+          return new Style({
+            text: new Text({
+              text: village.name,
+              offsetY: basePixelOffset * scaleOffset, // Dynamic offset that scales with zoom
+              textBaseline: 'bottom', // Ensures text is placed above the point
+              font: '14px sans-serif', // Larger font size
+              fill: new Fill({
+                color: '#000'
+              }),
+              stroke: new Stroke({
+                color: '#fff',
+                width: 3
+              })
+            })
+          });
+        } else {
+          // Return an empty style when zoom level is 7 or above
+          return new Style({});
+        }
+      };
+      
+      villageFeature.setStyle(styleFunction);
       
       this.villageLayer.getSource().addFeature(villageFeature);
     },
@@ -2387,6 +2412,101 @@ export default {
           this.updateTroopLayer();
         });
       }, 500);
+    },
+    
+    // Connect to websocket
+    async connectToWebsocket() {
+      if (!authService.isAuthenticated()) {
+        console.error('Cannot connect to websocket: not authenticated');
+        return;
+      }
+      
+      try {
+        const token = authService.getToken();
+        console.log('[WebSocket] Connecting to websocket server...');
+        
+        // Connect to the websocket server
+        const connected = await websocketService.connect(token);
+        if (connected) {
+          this.websocketConnected = true;
+          console.log('[WebSocket] Connected successfully');
+          
+          // Register handler for map updates
+          websocketService.onMapUpdate(this.handleWebsocketMapUpdate);
+          
+          // Register connect handler to handle reconnections
+          websocketService.onConnect(() => {
+            console.log('[WebSocket] Reconnected');
+            this.websocketConnected = true;
+          });
+          
+          // Register disconnect handler
+          websocketService.onDisconnect(() => {
+            console.log('[WebSocket] Disconnected');
+            this.websocketConnected = false;
+          });
+        } else {
+          console.error('[WebSocket] Failed to connect');
+        }
+      } catch (error) {
+        console.error('[WebSocket] Connection error:', error);
+      }
+    },
+    
+    // Disconnect from websocket
+    disconnectFromWebsocket() {
+      if (this.websocketConnected) {
+        console.log('[WebSocket] Disconnecting from websocket server...');
+        
+        // Remove all handlers to prevent memory leaks
+        websocketService.removeMapUpdateHandler(this.handleWebsocketMapUpdate);
+        
+        // Disconnect
+        websocketService.disconnect();
+        this.websocketConnected = false;
+      }
+    },
+    
+    // Handle map updates from websocket
+    handleWebsocketMapUpdate(mapData) {
+      console.log('[WebSocket] Received map update, updating map data...');
+      
+      // Update mapData with new data from the websocket
+      this.mapData = mapData;
+      
+      // Ensure each village has a resource_fields array
+      this.villages = mapData.villages.map(village => ({
+        ...village,
+        resource_fields: village.resource_fields || Array(20).fill(null)
+      }));
+      
+      // Update troops
+      this.troops = mapData.troops || [];
+      
+      // Update the troop layer
+      this.updateTroopLayer();
+      
+      // If there's a focused village, update it with the new data
+      if (this.focusedVillage) {
+        const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
+        if (updatedVillage) {
+          this.focusedVillage = updatedVillage;
+          
+          // Also update the selection dialog if it's open and related to this village
+          if (this.selectionDialog.show && this.selectionDialog.village && 
+              this.selectionDialog.village.id === updatedVillage.id) {
+            this.selectionDialog.village = updatedVillage;
+          }
+        }
+      }
+      
+      // Update last village refresh time
+      this.lastVillageRefresh = Date.now();
+      
+      // Redraw the grid with new data
+      this.drawGrid();
+      
+      console.log('[WebSocket] Map update complete');
     },
   }
 };

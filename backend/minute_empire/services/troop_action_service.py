@@ -10,6 +10,7 @@ from minute_empire.repositories.troop_action_repository import TroopActionReposi
 from minute_empire.schemas.schemas import ActionType, TroopType, TroopMode, Location
 from minute_empire.domain.troop import Troop
 from minute_empire.services.task_scheduler import task_scheduler
+from minute_empire.services.websocket_service import websocket_service
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -404,6 +405,9 @@ class TroopActionService:
             
             # Mark action as processed
             await self.action_repository.mark_processed(action_id)
+            
+            # Broadcast to all connected users via WebSocket
+            await websocket_service.broadcast_troop_action_complete()
             
             return result
             

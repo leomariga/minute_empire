@@ -70,6 +70,12 @@ const apiService = {
   async getCurrentUser() {
     try {
       const response = await this._api.get('/me');
+      
+      // If the response includes a token, store it for WebSocket connections
+      if (response.data && response.data.access_token) {
+        localStorage.setItem('auth_token', response.data.access_token);
+      }
+      
       return response.data;
     } catch (error) {
       console.error('Get user error:', error.response?.data || error.message);

@@ -13,6 +13,7 @@ from minute_empire.repositories.troops_repository import TroopsRepository
 from minute_empire.repositories.troop_action_repository import TroopActionRepository
 from minute_empire.services.task_scheduler import task_scheduler
 from minute_empire.services.troop_action_service import TroopActionService
+from minute_empire.services.websocket_service import websocket_service
 import logging
 import asyncio
 from dataclasses import dataclass
@@ -482,6 +483,10 @@ class TimedConstructionService:
             await self.village_repository.save(village)
             
             logger.info(f"Completed construction task {task_id_param} for village {village_id}")
+            
+            # Broadcast map update to the village owner via WebSocket
+            await websocket_service.broadcast_construction_complete(village_id)
+            
             return {
                 "success": True,
                 "task_id": task_id_param,
@@ -551,6 +556,10 @@ class TimedConstructionService:
                 return {"success": False, "error": "Failed to create troop"}
             
             logger.info(f"Completed troop training task {task_id_param}, created troop {troop.id}")
+            
+            # Broadcast to all users since troop training affects the map for everyone
+            await websocket_service.broadcast_troop_action_complete()
+            
             return {"success": True, "troop_id": troop.id}
             
         except Exception as e:

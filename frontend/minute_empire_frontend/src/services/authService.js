@@ -23,6 +23,26 @@ const authService = {
   },
 
   /**
+   * Get the authentication token (for WebSocket connections)
+   * @returns {string|null} The authentication token or null if not available
+   */
+  getToken() {
+    // Get token from localStorage
+    const token = localStorage.getItem('auth_token');
+    if (token) {
+      return token;
+    }
+    
+    // If no token in localStorage, try to get it from user data
+    const user = this.getCurrentUser();
+    if (user && user.token) {
+      return user.token;
+    }
+    
+    return null;
+  },
+
+  /**
    * Login a user
    * @param {string} username - User's username
    * @param {string} password - User's password
@@ -32,11 +52,17 @@ const authService = {
     try {
       const response = await apiService.loginUser({ username, password });
       
+      // Store the token in localStorage for WebSocket connections
+      if (response.access_token) {
+        localStorage.setItem('auth_token', response.access_token);
+      }
+      
       // Store user data in localStorage
       localStorage.setItem('user', JSON.stringify({
         id: response.user_id,
         username: response.username,
         familyName: response.family_name,
+        token: response.access_token // Also store token in user object as backup
       }));
       
       return response;
@@ -52,12 +78,15 @@ const authService = {
   async logout() {
     try {
       await apiService.logout();
+      // Clear all authentication data
       localStorage.removeItem('user');
+      localStorage.removeItem('auth_token');
       router.push('/login');
     } catch (error) {
       console.error('Logout error:', error);
       // Clear local storage even if API call fails
       localStorage.removeItem('user');
+      localStorage.removeItem('auth_token');
       router.push('/login');
     }
   },
