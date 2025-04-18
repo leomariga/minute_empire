@@ -31,6 +31,19 @@ class Building:
     }
 
     # Defines how the resource upgrade scales with level
+    RESOURCE_UPGRADE_LEVEL_SCALE = {
+        ConstructionType.CITY_CENTER: 1.2,
+        ConstructionType.WAREHOUSE: 1.5,
+        ConstructionType.GRANARY: 1.5,
+        ConstructionType.WALL: 1.2,
+        ConstructionType.RALLY_POINT: 1.2,
+        ConstructionType.BARRAKS: 1.2,
+        ConstructionType.ARCHERY: 1.2,
+        ConstructionType.STABLE: 1.2,
+        ConstructionType.HIDE_SPOT: 1.2,
+    }
+
+    # Defines how the resource upgrade scales with level
     CTN_TIME_LEVEL_SCALE = {
         ConstructionType.CITY_CENTER: 1.2,
         ConstructionType.WAREHOUSE: 1.2,
@@ -46,8 +59,8 @@ class Building:
     # Base upgrade costs
     BASE_UPGRADE_COSTS = {
         ConstructionType.CITY_CENTER: {"food": 300, "wood": 200, "stone": 240, "iron": 140},
-        ConstructionType.WAREHOUSE: {"food": 60, "wood": 200, "stone": 160, "iron": 120},
-        ConstructionType.GRANARY: {"food": 60, "wood": 180, "stone": 140, "iron": 100},
+        ConstructionType.WAREHOUSE: {"food": 0, "wood": 200, "stone": 160, "iron": 120},
+        ConstructionType.GRANARY: {"food": 0, "wood": 180, "stone": 140, "iron": 100},
         ConstructionType.WALL: {"food": 300, "wood": 50, "stone": 250, "iron": 100},
         ConstructionType.RALLY_POINT: {"food": 0, "wood": 150, "stone": 70, "iron": 40},
         ConstructionType.BARRAKS: {"food": 100, "wood": 180, "stone": 150, "iron": 100},

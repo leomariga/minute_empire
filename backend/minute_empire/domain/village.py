@@ -210,7 +210,7 @@ class Village:
             warehouse = next((b for b in self.get_all_buildings()
                             if b.type == ConstructionType.WAREHOUSE), None)
             if warehouse:
-                return base_capacity * (1.64*warehouse.level)
+                return base_capacity * (1.64**warehouse.level)
                 
         return base_capacity
     
