@@ -54,6 +54,7 @@
       :show="zoomLevel <= zoomTroopThresholdOn && zoomLevel >= zoomTroopThresholdOff"
       :tasks="mapData?.troop_actions || []"
       :troops="mapData?.troops || []"
+      :villages="villages"
       :server-time="mapData?.server_time"
       :client-response-time="mapData?.client_response_time"
       @task-completed="handleTroopActionCompleted"

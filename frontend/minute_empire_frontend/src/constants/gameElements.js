@@ -315,6 +315,31 @@ export const TROOP_STATUS = {
   }
 };
 
+// Friendly status types for ownership indication
+export const FRIENDLY_STATUS = {
+  MYSELF: {
+    id: 'myself',
+    name: 'My Troops',
+    description: 'Troops owned by the current player',
+    color: '#000000', // Black
+    textColor: 'rgba(0, 0, 0, 0.87)' // Full opacity black for text
+  },
+  ENEMY: {
+    id: 'enemy',
+    name: 'Enemy Troops',
+    description: 'Troops owned by enemies',
+    color: '#f44336', // Red (from ATTACK status)
+    textColor: '#f44336' // Same red for text
+  },
+  ALLY: {
+    id: 'ally',
+    name: 'Allied Troops',
+    description: 'Troops owned by allies (not used yet)',
+    color: '#4caf50', // Green (from RETURN status)
+    textColor: '#4caf50' // Same green for text
+  }
+};
+
 // UI Colors for consistent styling across components
 export const UI_COLORS = {
   // Background colors
@@ -590,4 +615,24 @@ export function getTroopActionDescription(mode) {
   
   const statusInfo = getTroopStatusInfo(mode);
   return statusInfo ? statusInfo.actionText : mode;
+}
+
+// Get friendly status info
+export function getFriendlyStatusInfo(statusId) {
+  if (!statusId) return FRIENDLY_STATUS.MYSELF;
+  
+  const normalizedId = statusId.toUpperCase();
+  return FRIENDLY_STATUS[normalizedId] || FRIENDLY_STATUS.MYSELF;
+}
+
+// Get friendly status color
+export function getFriendlyStatusColor(statusId) {
+  const status = getFriendlyStatusInfo(statusId);
+  return status.color;
+}
+
+// Get friendly status text color
+export function getFriendlyStatusTextColor(statusId) {
+  const status = getFriendlyStatusInfo(statusId);
+  return status.textColor;
 } 

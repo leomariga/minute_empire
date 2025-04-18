@@ -478,6 +478,7 @@ class TroopActionService:
         Returns:
             Dict containing combat results
         """
+        # EVERYTIME YOU CHANGE THE COMBAT LOGIC, YOU NEED TO UPDATE THE README.md FILE FROM SERVICES/README.md
         # Combat constants
         ALL_DEAD_THRESHOLD = 0.85
         ALL_ALIVE_THRESHOLD = 0.15
@@ -501,6 +502,31 @@ class TroopActionService:
             for troop in defender_troops
         )
         
+        # Apply special rules for archers and pikemen
+        # Archer attacking: never takes damage
+        if not is_movement and attacker_troop.type == TroopType.ARCHER:
+            # Check if target is in valid attack spots
+            if {"x": target_location.x, "y": target_location.y} in Troop.get_valid_attack_spots(attacker_troop.type, Location(x=start_location.x, y=start_location.y)):
+                # Archer doesn't take damage when attacking
+                raw_defender_atk = 0
+        
+        # Pikeman attacking: doesn't take damage unless attacking its own location
+        if not is_movement and attacker_troop.type == TroopType.PIKEMAN:
+            # Check if target is in valid attack spots and not at its own location
+            if ({"x": target_location.x, "y": target_location.y} in 
+                Troop.get_valid_attack_spots(attacker_troop.type, Location(x=start_location.x, y=start_location.y)) and
+                not (start_location.x == target_location.x and start_location.y == target_location.y)):
+                # Pikeman doesn't take damage when attacking another location
+                raw_defender_atk = 0
+        
+        # Archer defending: cannot attack on its own cell
+        for i, defender_troop in enumerate(defender_troops):
+            if defender_troop.type == TroopType.ARCHER:
+                # If target location is same as defender's location, archer can't attack while defending
+                if target_location.x == defender_troop.location.x and target_location.y == defender_troop.location.y:
+                    # Subtract this archer's attack contribution from the total defender attack
+                    raw_defender_atk -= defender_troop.quantity * TROOP_STATS[defender_troop.type]["atk"]
+        
         # Check if any troop is at its home village
         defender_home_bonus = False
         for defender_troop in defender_troops:
@@ -517,7 +543,7 @@ class TroopActionService:
                 if defender_home_village and village_at_location.owner_id == defender_home_village.owner_id:
                     defender_home_bonus = True
                     break
-                
+
         # Apply bonuses
         final_attacker_atk = raw_attacker_atk
         final_attacker_def = raw_attacker_def
@@ -542,24 +568,6 @@ class TroopActionService:
         # Calculate loss multipliers (capped between 0 and 1)
         attacker_loss = median([0, defender_snowball_ratio, 1])
         defender_loss = median([0, attacker_snowball_ratio, 1])
-        
-        # Special case: archer and pikeman attack without moving
-        # If it's an attack (not movement) and the attacker is archer or pikeman, they don't take damage
-        if not is_movement and (attacker_troop.type == TroopType.ARCHER or attacker_troop.type == TroopType.PIKEMAN):
-            # Check if current location is in valid attack spots
-            if {"x": target_location.x, "y": target_location.y} in Troop.get_valid_attack_spots(attacker_troop.type, Location(x=start_location.x, y=start_location.y)):
-                # For archer, it cannot attack current location, so archer never takes damage
-                if attacker_troop.type == TroopType.ARCHER:
-                    attacker_loss = 0
-                
-                # For pikeman, it can attack current location, check if the attack is to its own location
-                elif attacker_troop.type == TroopType.PIKEMAN:
-                    if start_location.x == target_location.x and start_location.y == target_location.y:
-                        # If pikeman attacks its own location, it takes damage
-                        pass
-                    else:
-                        # If pikeman attacks another location, it doesn't take damage
-                        attacker_loss = 0
         
         # Apply threshold logic: If losses exceed threshold, all troops die
         attacker_all_dead = attacker_loss > ALL_DEAD_THRESHOLD

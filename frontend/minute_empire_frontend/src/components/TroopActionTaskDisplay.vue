@@ -5,8 +5,9 @@
         <thead>
           <tr>
             <th>Troop Type</th>
-            <th class="action-col">Action</th>
+            <th class="family-col">Owner</th>
             <th class="location-col">Target</th>
+            <th class="action-col">Action</th>
             <th class="time-col">Remaining</th>
             <th class="hide-on-mobile">Completion</th>
           </tr>
@@ -14,16 +15,21 @@
         <tbody>
           <tr v-for="task in activeTasks" :key="task.id">
             <td class="troop-type">
-              <v-icon size="18" :color="getTroopTypeColor(task)">{{ getTroopTypeIcon(task) }}</v-icon>
-              <span class="troop-name">{{ getTroopTypeName(task) }}</span>
+              <v-icon size="18" :color="getTroopOwnershipColor(task)">{{ getTroopTypeIcon(task) }}</v-icon>
+              <span class="troop-name" :style="{ color: getTroopOwnershipTextColor(task) }">{{ getTroopTypeName(task) }}</span>
+            </td>
+            <td class="family-col">
+              <span class="family-name" :style="{ color: getTroopOwnershipTextColor(task) }">
+                {{ getTroopOwnerFamilyName(task) }}
+              </span>
+            </td>
+            <td class="location-col">
+              {{ formatLocation(task.target_location) }}
             </td>
             <td class="action-col">
               <div class="action-wrapper">
                 <v-icon size="16" :color="getActionColor(task)">{{ getActionIcon(task) }}</v-icon>
               </div>
-            </td>
-            <td class="location-col">
-              {{ formatLocation(task.target_location) }}
             </td>
             <td class="time-col">
               <div class="progress-wrapper">
@@ -48,7 +54,7 @@
 </template>
 
 <script>
-import { TROOP_STATUS, TROOP_TYPES, getTroopInfo, getTroopTypeName, getTroopStatusInfo, getTroopStatusIcon, getTroopStatusColor } from '../constants/gameElements';
+import { TROOP_STATUS, TROOP_TYPES, FRIENDLY_STATUS, getTroopInfo, getTroopTypeName, getTroopStatusInfo, getTroopStatusIcon, getTroopStatusColor, getFriendlyStatusColor, getFriendlyStatusTextColor } from '../constants/gameElements';
 
 export default {
   name: 'TroopActionTaskDisplay',
@@ -67,6 +73,12 @@ export default {
       type: Array,
       required: false,
       default: () => []
+    },
+    villages: {
+      type: Array,
+      required: false,
+      default: () => [],
+      description: "Array of village objects, needed to determine if a troop belongs to the player (for icon color)"
     },
     serverTime: {
       type: String,
@@ -323,14 +335,6 @@ export default {
       return troopInfo ? troopInfo.icon : 'mdi-army';
     },
     
-    getTroopTypeColor(task) {
-      const troop = this.getTroopForTask(task);
-      if (!troop) return '#757575'; // Default gray
-      
-      const troopInfo = getTroopInfo(troop.type);
-      return troopInfo ? troopInfo.color : '#757575';
-    },
-    
     getTroopTypeName(task) {
       const troop = this.getTroopForTask(task);
       if (!troop) return 'Unknown Troop';
@@ -385,6 +389,52 @@ export default {
         console.error('Error formatting time:', e);
         return timeString || 'Unknown';
       }
+    },
+
+    getTroopOwnershipColor(task) {
+      const troop = this.getTroopForTask(task);
+      if (!troop) return '#757575'; // Default gray
+      
+      // Determine if the troop belongs to the user
+      const homeVillage = this.villages.find(v => v.id === troop.home_id);
+      const isOwned = homeVillage ? homeVillage.is_owned : false;
+      
+      // Return appropriate color based on ownership status
+      if (isOwned) {
+        return getFriendlyStatusColor('MYSELF');
+      } else {
+        return getFriendlyStatusColor('ENEMY');
+      }
+    },
+
+    getTroopOwnershipTextColor(task) {
+      const troop = this.getTroopForTask(task);
+      if (!troop) return '#666'; // Default gray
+      
+      // Determine if the troop belongs to the user
+      const homeVillage = this.villages.find(v => v.id === troop.home_id);
+      const isOwned = homeVillage ? homeVillage.is_owned : false;
+      
+      // Return appropriate text color based on ownership status
+      if (isOwned) {
+        return getFriendlyStatusTextColor('MYSELF');
+      } else {
+        return getFriendlyStatusTextColor('ENEMY');
+      }
+    },
+
+    getTroopOwnerFamilyName(task) {
+      const troop = this.getTroopForTask(task);
+      if (!troop) return 'Unknown';
+      
+      // Get home village to find owner info
+      const homeVillage = this.villages.find(v => v.id === troop.home_id);
+      if (!homeVillage) return 'Unknown';
+      
+      // Return family name from user_info if available
+      return homeVillage.user_info && homeVillage.user_info.family_name 
+        ? homeVillage.user_info.family_name 
+        : (homeVillage.is_owned ? 'You' : 'Enemy');
     }
   }
 };
@@ -492,15 +542,29 @@ tbody tr:last-child td {
   max-width: 140px;
 }
 
-.action-col {
-  width: 80px;
+.family-col {
+  width: 100px;
   text-align: center;
+}
+
+.family-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+  display: inline-block;
 }
 
 .location-col {
   width: 80px;
   text-align: center;
   color: #555;
+}
+
+.action-col {
+  width: 80px;
+  text-align: center;
 }
 
 .action-wrapper {
@@ -572,8 +636,13 @@ tbody tr:last-child td {
     font-size: 12px;
   }
   
-  .action-col {
-    width: 42px;
+  .family-col {
+    width: 70px;
+  }
+  
+  .family-name {
+    max-width: 60px;
+    font-size: 12px;
   }
   
   .location-col {
