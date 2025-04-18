@@ -818,6 +818,35 @@ class TimedConstructionService:
                 "success": False, 
                 "error": f"Maximum number of fields ({village.MAX_FIELDS}) reached"
             }
+
+        # Find village center to check its level
+        village_center = None
+        for building in village.get_all_buildings():
+            if building.type == ConstructionType.CITY_CENTER:
+                village_center = building
+                break
+        
+        # Define slot restrictions based on village center level
+        restricted_slots = {
+            1: [0, 1, 2, 3, 4, 5, 6, 7],
+            3: [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13],
+            5: [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 17, 18, 19],
+            7: [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 17, 18, 19, 8, 9, 10],
+            9: [0, 1, 2, 3, 4, 5, 6, 7, 11, 12, 13, 17, 18, 19, 8, 9, 10, 14, 15, 16]
+        }
+        
+        # Check if the requested slot is restricted
+        for required_level, slots in restricted_slots.items():
+            if slot in slots:
+                # If village center doesn't exist or its level is too low
+                if not village_center or village_center.level < required_level:
+                    return {
+                        "success": False,
+                        "error": f"Resource field in slot {slot} requires Village Center level {required_level}",
+                        "required_village_center_level": required_level,
+                        "current_village_center_level": village_center.level if village_center else 0
+                    }
+                break
             
         # Check if we can afford the field
         from minute_empire.domain.resource_field import ResourceProducer
