@@ -167,6 +167,9 @@ class TroopActionService:
             
             logger.info(f"Scheduled troop movement: Troop {troop_id} from ({troop.location.x}, {troop.location.y}) to ({target_x}, {target_y}) - completion at {completion_time}")
             
+            # Broadcast to all connected users via WebSocket
+            await websocket_service.broadcast_troop_action_complete()
+            
             return {
                 "success": True,
                 "action_id": action.id,
@@ -244,6 +247,9 @@ class TroopActionService:
             )
             
             logger.info(f"Scheduled troop attack: Troop {troop_id} from ({troop.location.x}, {troop.location.y}) attacking ({target_x}, {target_y}) - completion at {completion_time}")
+            
+            # Broadcast to all connected users via WebSocket
+            await websocket_service.broadcast_troop_action_complete()
             
             return {
                 "success": True,
