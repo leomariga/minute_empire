@@ -1174,3 +1174,227 @@ class TimedConstructionService:
             result["errors"].append(error_msg)
         
         return result 
+
+    async def start_building_destruction(self, village_id: str, slot: int) -> Dict[str, Any]:
+        """
+        Start timed building destruction.
+        
+        Args:
+            village_id: The ID of the village
+            slot: Slot of the building to destroy
+            
+        Returns:
+            Dict[str, Any]: Result of the operation
+        """
+        # Validate destruction first
+        validation_result = await self._validate_building_destruction(village_id, slot)
+        if not validation_result["success"]:
+            return validation_result
+            
+        # Get the village and building after validation
+        village = await self.village_repository.get_by_id(village_id)
+        building = village.get_building(slot)
+        
+        # Deduct resources for the task (costs were already validated in _validate_building_destruction)
+        costs = building.get_upgrade_cost()
+        village.deduct_resources(costs)
+            
+        # Get the destruction time in minutes (same as upgrade time or creation time if level 1)
+        if building.level == 1:
+            duration = Building.get_creation_time(building.type)
+        else:
+            duration = building.get_upgrade_time()
+        
+        # Create task
+        task = village.add_construction_task(
+            TaskType.DESTROY_BUILDING,
+            building.type.value,
+            slot,
+            duration
+        )
+        
+        # Save changes
+        await self.village_repository.save(village)
+        
+        # Schedule the task completion
+        await task_scheduler.schedule_task(
+            task_id=task.id,
+            execution_time=task.completion_time,
+            callback=self.complete_construction_task,
+            village_id=village_id,
+            task_id_param=task.id,
+            completion_time=task.completion_time
+        )
+        
+        return {
+            "success": True,
+            "building_type": building.type.value,
+            "level": building.level,
+            "slot": slot,
+            "estimated_completion": task.completion_time,
+            "task_id": task.id
+        }
+        
+    async def start_field_destruction(self, village_id: str, slot: int) -> Dict[str, Any]:
+        """
+        Start timed field destruction.
+        
+        Args:
+            village_id: The ID of the village
+            slot: Slot of the field to destroy
+            
+        Returns:
+            Dict[str, Any]: Result of the operation
+        """
+        # Validate destruction first
+        validation_result = await self._validate_field_destruction(village_id, slot)
+        if not validation_result["success"]:
+            return validation_result
+            
+        # Get the village and field after validation
+        village = await self.village_repository.get_by_id(village_id)
+        field = village.get_resource_field(slot)
+        
+        # Deduct resources for the task (costs were already validated in _validate_field_destruction)
+        costs = field.get_upgrade_cost()
+        village.deduct_resources(costs)
+            
+        # Get the destruction time in minutes (same as upgrade time or creation time if level 1)
+        if field.level == 1:
+            duration = ResourceProducer.get_creation_time(field.type)
+        else:
+            duration = field.get_upgrade_time()
+        
+        # Create task
+        task = village.add_construction_task(
+            TaskType.DESTROY_FIELD,
+            field.type.value,
+            slot,
+            duration
+        )
+        
+        # Save changes
+        await self.village_repository.save(village)
+        
+        # Schedule the task completion
+        await task_scheduler.schedule_task(
+            task_id=task.id,
+            execution_time=task.completion_time,
+            callback=self.complete_construction_task,
+            village_id=village_id,
+            task_id_param=task.id,
+            completion_time=task.completion_time
+        )
+        
+        return {
+            "success": True,
+            "field_type": field.type.value,
+            "level": field.level,
+            "slot": slot,
+            "estimated_completion": task.completion_time,
+            "task_id": task.id
+        }
+    
+    async def _validate_building_destruction(self, village_id: str, slot: int) -> Dict[str, Any]:
+        """
+        Validate if a building can be destroyed.
+        
+        Args:
+            village_id: The ID of the village
+            slot: Slot of the building to destroy
+            
+        Returns:
+            Dict[str, Any]: Validation result with success flag and error message
+        """
+        # Get the village
+        village = await self.village_repository.get_by_id(village_id)
+        if not village:
+            return {
+                "success": False,
+                "error": "Village not found"
+            }
+            
+        # Check if the building exists in the given slot
+        building = village.get_building(slot)
+        if not building:
+            return {
+                "success": False,
+                "error": f"No building exists in slot {slot}"
+            }
+            
+        # Check if there is already a task for this building
+        if hasattr(village._data, 'construction_tasks'):
+            for task in village._data.construction_tasks:
+                if not task.processed and task.slot == slot:
+                    return {
+                        "success": False,
+                        "error": f"There is already an ongoing task for the building in slot {slot}"
+                    }
+        
+        # Check if there are sufficient resources for the task
+        costs = building.get_upgrade_cost()
+        for resource, amount in costs.items():
+            current = getattr(village.resources, resource, 0)
+            if current < amount:
+                return {
+                    "success": False,
+                    "error": f"Insufficient {resource}",
+                    "cost": costs
+                }
+                    
+        return {
+            "success": True,
+            "cost": costs  # Include the cost in the result for reference
+        }
+    
+    async def _validate_field_destruction(self, village_id: str, slot: int) -> Dict[str, Any]:
+        """
+        Validate if a resource field can be destroyed.
+        
+        Args:
+            village_id: The ID of the village
+            slot: Slot of the field to destroy
+            
+        Returns:
+            Dict[str, Any]: Validation result with success flag and error message
+        """
+        # Get the village
+        village = await self.village_repository.get_by_id(village_id)
+        if not village:
+            return {
+                "success": False,
+                "error": "Village not found"
+            }
+            
+        # Check if the field exists in the given slot
+        field = village.get_resource_field(slot)
+        if not field:
+            return {
+                "success": False,
+                "error": f"No resource field exists in slot {slot}"
+            }
+            
+        # Check if there is already a task for this field
+        if hasattr(village._data, 'construction_tasks'):
+            for task in village._data.construction_tasks:
+                if not task.processed and task.slot == slot:
+                    return {
+                        "success": False,
+                        "error": f"There is already an ongoing task for the field in slot {slot}"
+                    }
+        
+        # Check if there are sufficient resources for the task
+        costs = field.get_upgrade_cost()
+        for resource, amount in costs.items():
+            current = getattr(village.resources, resource, 0)
+            if current < amount:
+                return {
+                    "success": False,
+                    "error": f"Insufficient {resource}",
+                    "cost": costs
+                }
+                    
+        return {
+            "success": True,
+            "cost": costs  # Include the cost in the result for reference
+        } 

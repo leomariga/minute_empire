@@ -25,10 +25,10 @@ class CommandService:
         if len(parts) < 2:
             raise ValueError("Invalid command format")
             
-        action = parts[0]  # create/upgrade/train/move/attack
+        action = parts[0]  # create/upgrade/train/move/attack/destroy
         
         # Handle existing commands first
-        if action in ["create", "upgrade", "train"]:
+        if action in ["create", "upgrade", "destroy", "train"]:
             if action == "train":
                 if len(parts) < 3:
                     raise ValueError("Invalid train command format")
@@ -63,9 +63,9 @@ class CommandService:
                     "slot": slot
                 }
             
-            elif action == "upgrade":
+            elif action in ["upgrade", "destroy"]:
                 if in_index < 2:
-                    raise ValueError("Invalid upgrade command format")
+                    raise ValueError(f"Invalid {action} command format")
                 target_type = parts[1]
                 if target_type not in ["field", "building"]:
                     raise ValueError(f"Invalid target type: {target_type}")
@@ -156,6 +156,8 @@ class CommandService:
                 return await self._handle_create(village, params)
             elif action == "upgrade":
                 return await self._handle_upgrade(village, params)
+            elif action == "destroy":
+                return await self._handle_destroy(village, params)
             elif action == "train":
                 return await self._handle_train(village, params)
             elif action == "move":
@@ -358,4 +360,38 @@ class CommandService:
                     "target_location": {"x": params["target_x"], "y": params["target_y"]},
                     "error_details": str(e)
                 }
+            }
+    
+    async def _handle_destroy(self, village: Village, params: Dict) -> Dict:
+        """Handle destroy commands."""
+        print(f"[CommandService] Handling destroy command for village {village.id}")
+        target_type = params["type"]
+        slot = params["slot"]
+        
+        try:
+            if target_type == "field":
+                print(f"[CommandService] Starting field destruction in slot {slot} using ConstructionService")
+                result = await self.construction_service.start_field_destruction(village.id, slot)
+                return {
+                    "success": result["success"],
+                    "message": result.get("error", f"Started destruction of field in slot {slot}"),
+                    "data": result
+                }
+                
+            elif target_type == "building":
+                print(f"[CommandService] Starting building destruction in slot {slot} using ConstructionService")
+                result = await self.construction_service.start_building_destruction(village.id, slot)
+                return {
+                    "success": result["success"],
+                    "message": result.get("error", f"Started destruction of building in slot {slot}"),
+                    "data": result
+                }
+            
+            raise ValueError(f"Invalid destroy type: {target_type}")
+        except Exception as e:
+            print(f"[CommandService] Error in destroy command: {str(e)}")
+            return {
+                "success": False,
+                "message": str(e),
+                "data": {}
             } 

@@ -196,6 +196,22 @@ export const TASK_TYPES = {
     color: '#4caf50', // Green
     operationIcon: 'mdi-arrow-up-bold',
     operationColor: '#4caf50' // Green
+  },
+  DESTROY_BUILDING: {
+    id: 'destroy_building',
+    name: 'Demolish Building',
+    icon: 'mdi-bulldozer',
+    color: '#f44336', // Red
+    operationIcon: 'mdi-delete',
+    operationColor: '#f44336' // Red
+  },
+  DESTROY_FIELD: {
+    id: 'destroy_field',
+    name: 'Clear Field',
+    icon: 'mdi-delete-empty',
+    color: '#ff5722', // Deep orange
+    operationIcon: 'mdi-delete',
+    operationColor: '#ff5722' // Deep orange
   }
 };
 

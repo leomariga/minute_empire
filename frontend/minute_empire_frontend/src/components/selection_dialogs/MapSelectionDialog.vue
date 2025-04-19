@@ -65,13 +65,17 @@
     
     <!-- Actions slot - upgrade panel for existing buildings/fields -->
     <template v-slot:actions>
-      <UpgradePanel
-        v-if="!isEmpty && fieldOrBuilding"
-        :item="fieldOrBuilding"
-        :is-being-upgraded="isBeingUpgraded"
-        :village="village"
-        @upgrade="handleUpgrade"
-      />
+      <div v-if="!isEmpty && fieldOrBuilding" class="action-container">
+        <div class="upgrade-panel-wrapper">
+          <UpgradePanel
+            :item="fieldOrBuilding"
+            :is-being-upgraded="isBeingUpgraded"
+            :village="village"
+            @upgrade="handleUpgrade"
+            @destroy="handleDestroy"
+          />
+        </div>
+      </div>
     </template>
   </BaseSelectionDialog>
 </template>
@@ -84,6 +88,7 @@ import BuildingBonusPanel from './BuildingBonusPanel.vue';
 import UpgradePanel from './UpgradePanel.vue';
 import CreationPanel from './CreationPanel.vue';
 import TrainTroopPanel from './TrainTroopPanel.vue';
+import apiService from '@/services/apiService';
 
 export default {
   name: 'MapSelectionDialog',
@@ -136,6 +141,16 @@ export default {
       type: Object,
       default: null
     }
+  },
+  
+  data() {
+    return {
+      // removed showConfirmDialog
+    };
+  },
+  
+  mounted() {
+    console.log('MapSelectionDialog mounted, village:', this.village?.id);
   },
   
   computed: {
@@ -626,6 +641,15 @@ export default {
       // Pass complete data through to parent
       this.$emit('train', data);
       this.closeDialog();
+    },
+    
+    handleDestroy(data) {
+      // Pass complete data through to parent as a construction action
+      this.$emit('destroy', {
+        ...data,
+        item_category: this.type
+      });
+      this.closeDialog();
     }
   }
 }
@@ -639,5 +663,28 @@ export default {
   border-radius: 20px;
   font-weight: 600;
   font-size: 14px;
+}
+
+.action-container {
+  display: flex;
+  width: 100%;
+}
+
+.upgrade-panel-wrapper {
+  flex-grow: 1;
+  width: 100%;
+}
+
+/* Remove all the dialog-related styles and destroy button styles */
+.mr-1 {
+  margin-right: 4px;
+}
+
+.mr-2 {
+  margin-right: 8px;
+}
+
+.mt-2 {
+  margin-top: 8px;
 }
 </style> 

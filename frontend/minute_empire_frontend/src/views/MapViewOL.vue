@@ -102,6 +102,7 @@
       @upgrade="handleUpgrade"
       @create="handleCreate"
       @train="handleTrainTroops"
+      @destroy="handleDestroy"
     >
       <template #additional-info>
         <!-- Future expansion slot for additional information -->
@@ -1157,7 +1158,16 @@ export default {
             task.task_type === 'create_field' && 
             Number(task.slot) === Number(resourceField.slot));
             
-        const cacheKey = `resource_${resourceField.type}_${resourceField.level}_${opacity}_${upgradeTask ? 'upgrade' : creationTask ? 'create' : 'normal'}`;
+        // Check for field destruction - ensure we're comparing numbers
+        const destructionTask = this.focusedVillage && 
+          this.focusedVillage.construction_tasks && 
+          this.focusedVillage.construction_tasks.find(task => 
+            task.task_type === 'destroy_field' && 
+            Number(task.slot) === Number(resourceField.slot));
+            
+        const cacheKey = `resource_${resourceField.type}_${resourceField.level}_${opacity}_${
+          destructionTask ? 'destroy' : upgradeTask ? 'upgrade' : creationTask ? 'create' : 'normal'
+        }`;
         if (this.styleCache[cacheKey] !== undefined) {
           return this.styleCache[cacheKey];
         }
@@ -1168,7 +1178,11 @@ export default {
         let displayIconName;
         let iconColor;
         
-        if (upgradeTask) {
+        if (destructionTask) {
+          // For destruction: use delete icon
+          displayIconName = TASK_TYPES.DESTROY_FIELD.operationIcon; // 'mdi-delete'
+          iconColor = '#d32f2f'; // Dark red for destruction
+        } else if (upgradeTask) {
           // For upgrades: use green up arrow
           displayIconName = 'mdi-arrow-up-bold';
           iconColor = 'rgba(0, 0, 0, 0.3)'; // Green for upgrades
@@ -1183,11 +1197,13 @@ export default {
         }
         
         // Larger icon size for better visibility of task icons
-        const iconSize = (upgradeTask || creationTask) ? 32 : Math.min(12 + level * 2, 28);
+        const iconSize = (upgradeTask || creationTask || destructionTask) ? 32 : Math.min(12 + level * 2, 28);
         
         // Debug log
-        if (upgradeTask || creationTask) {
-          console.log(`Found ${upgradeTask ? 'upgrading' : 'creating'} field at slot ${resourceField.slot}`);
+        if (upgradeTask || creationTask || destructionTask) {
+          console.log(`Found ${
+            destructionTask ? 'destroying' : upgradeTask ? 'upgrading' : 'creating'
+          } field at slot ${resourceField.slot}`);
         }
         
         try {
@@ -1197,9 +1213,9 @@ export default {
           // Create style with both circle and icon
           const style = new Style({
             image: new Circle({
-              radius: (upgradeTask || creationTask) ? baseSize * 2 : (baseSize + level*2),
+              radius: (upgradeTask || creationTask || destructionTask) ? baseSize * 2 : (baseSize + level*2),
               fill: new Fill({
-                color: circleColor
+                color: destructionTask ? 'rgba(244, 67, 54, 0.4)' : circleColor // Use red tint for destruction
               })
               // DO NOT REMOVE
               // stroke: new Stroke({
@@ -1214,7 +1230,7 @@ export default {
             image: new Icon({
               src: iconDataURL,
               scale: 1,
-              opacity: 1
+              opacity: destructionTask ? 1 : 1
             })
           });
           
@@ -1228,10 +1244,10 @@ export default {
             image: new Circle({
               radius: baseSize * 1.5,
               fill: new Fill({
-                color: circleColor
+                color: destructionTask ? 'rgba(244, 67, 54, 0.6)' : circleColor
               }),
               stroke: new Stroke({
-                color: (upgradeTask || creationTask) ? 'rgba(76, 175, 80, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+                color: destructionTask ? 'rgba(244, 67, 54, 0.8)' : (upgradeTask || creationTask) ? 'rgba(76, 175, 80, 0.8)' : 'rgba(0, 0, 0, 0.5)',
                 width: 2
               })
             }),
@@ -1984,7 +2000,16 @@ export default {
             task.task_type === 'create_building' && 
             Number(task.slot) === Number(building.slot));
             
-        const cacheKey = `building_${building.type}_${building.level}_${opacity}_${upgradeTask ? 'upgrade' : creationTask ? 'create' : 'normal'}`;
+        // Check for building destruction
+        const destructionTask = this.focusedVillage && 
+          this.focusedVillage.construction_tasks && 
+          this.focusedVillage.construction_tasks.find(task => 
+            task.task_type === 'destroy_building' && 
+            Number(task.slot) === Number(building.slot));
+            
+        const cacheKey = `building_${building.type}_${building.level}_${opacity}_${
+          destructionTask ? 'destroy' : upgradeTask ? 'upgrade' : creationTask ? 'create' : 'normal'
+        }`;
         if (this.styleCache[cacheKey] !== undefined) {
           return this.styleCache[cacheKey];
         }
@@ -1996,7 +2021,11 @@ export default {
         let displayIconName;
         let iconColor;
         
-        if (upgradeTask) {
+        if (destructionTask) {
+          // For destruction: use delete icon
+          displayIconName = TASK_TYPES.DESTROY_BUILDING.operationIcon; // 'mdi-delete'
+          iconColor = '#d32f2f'; // Dark red for destruction
+        } else if (upgradeTask) {
           // For upgrades: use green up arrow
           displayIconName = 'mdi-arrow-up-bold';
           iconColor = 'rgba(0, 0, 0, 0.3)'; // Green for upgrades
@@ -2014,11 +2043,13 @@ export default {
         }
         
         // Larger icon size for better visibility
-        const iconSize = (upgradeTask || creationTask) ? 32 : Math.min(14 + building.level, 24);
+        const iconSize = (upgradeTask || creationTask || destructionTask) ? 32 : Math.min(14 + building.level, 24);
         
         // Debug log
-        if (upgradeTask || creationTask) {
-          console.log(`Found ${upgradeTask ? 'upgrading' : 'creating'} building at slot ${building.slot}`);
+        if (upgradeTask || creationTask || destructionTask) {
+          console.log(`Found ${
+            destructionTask ? 'destroying' : upgradeTask ? 'upgrading' : 'creating'
+          } building at slot ${building.slot}`);
         }
         
         try {
@@ -2028,9 +2059,9 @@ export default {
           // Create style with both circle and icon
           const style = new Style({
             image: new Circle({
-              radius: (upgradeTask || creationTask) ? baseSize * 2 : (baseSize + building.level*2),
+              radius: (upgradeTask || creationTask || destructionTask) ? baseSize * 2 : (baseSize + building.level*2),
               fill: new Fill({
-                color: circleColor
+                color: destructionTask ? 'rgba(244, 67, 54, 0.4)' : circleColor // Use red tint for destruction
               }),
               // DO NOT REMOVE
               // stroke: new Stroke({
@@ -2059,10 +2090,10 @@ export default {
             image: new Circle({
               radius: baseSize * 1.5,
               fill: new Fill({
-                color: circleColor
+                color: destructionTask ? 'rgba(244, 67, 54, 0.6)' : circleColor
               }),
               stroke: new Stroke({
-                color: (upgradeTask || creationTask) ? 'rgba(76, 175, 80, 0.8)' : 'rgba(0, 0, 0, 0.5)',
+                color: destructionTask ? 'rgba(244, 67, 54, 0.8)' : (upgradeTask || creationTask) ? 'rgba(76, 175, 80, 0.8)' : 'rgba(0, 0, 0, 0.5)',
                 width: 2
               })
             }),
@@ -2148,38 +2179,145 @@ export default {
     },
     
     handleTrainTroops(data) {
+      if (!this.focusedVillage) {
+        this.showMessage('No village selected', 'error');
+        return;
+      }
+
+      const command = `train ${data.quantity} ${data.troopType}`;
+      
+      this.executeCommand(command)
+        .then(response => {
+          if (response.success) {
+            this.showMessage(`Started training ${data.quantity} ${getTroopTypeName(data.troopType)}(s)`, 'success');
+            this.refreshMapInfo(); // Refresh map to show the new training task
+          } else {
+            this.showMessage(response.message || 'Failed to train troops', 'error');
+          }
+        })
+        .catch(error => {
+          console.error('Error training troops:', error);
+          this.showMessage(`Error: ${error.message || 'Failed to train troops'}`, 'error');
+        });
+    },
+    
+    handleDestroy(data) {
+      // Process the destroy command using the existing handleConstructionAction method
+      this.handleConstructionAction(data, 'destroy');
+    },
+    
+    async executeCommand(command) {
+      if (!this.focusedVillage || !this.focusedVillage.id) {
+        this.showMessage('No village selected', 'error');
+        return { success: false, message: 'No village selected' };
+      }
+      
+      try {
+        console.log(`Executing command: ${command} for village ${this.focusedVillage.id}`);
+        const response = await apiService.executeCommand(this.focusedVillage.id, command);
+        console.log('Command response:', response);
+        return response;
+      } catch (error) {
+        console.error('Command execution error:', error);
+        this.showMessage(`Error: ${error.message || 'Failed to execute command'}`, 'error');
+        return { success: false, message: error.message || 'Failed to execute command' };
+      }
+    },
+    
+    async refreshMapInfo() {
+      try {
+        // Fetch fresh map data
+        const mapData = await this.fetchMapData();
+        
+        // Update villages
+        if (mapData && mapData.villages) {
+          this.villages = mapData.villages.map(village => ({
+            ...village,
+            resource_fields: village.resource_fields || Array(20).fill(null)
+          }));
+          
+          // Update the focused village if it exists
+          if (this.focusedVillage) {
+            const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
+            if (updatedVillage) {
+              this.focusedVillage = {
+                ...updatedVillage,
+                resources: updatedVillage.resources || this.focusedVillage.resources
+              };
+            }
+          }
+          
+          // Update last refresh time
+          this.lastVillageRefresh = Date.now();
+          
+          // Update map layers
+          this.refreshFocusedVillage();
+          this.handleTroopActionExecuted();
+        }
+      } catch (error) {
+        console.error('Error refreshing map data:', error);
+        this.showMessage(`Error refreshing map: ${error.message}`, 'error');
+      }
+    },
+
+    handleConstructionAction(data, actionType) {
       // Use the focused village
       if (!this.focusedVillage) {
-        console.error('No focused village available for training troops');
+        console.error('No focused village available for construction action');
         this.showMessage('No village selected', 'error');
         return;
       }
       
       // Make sure the village is owned by the player
       if (!this.focusedVillage.is_owned) {
-        console.error('Cannot train troops in a village not owned by player');
+        console.error('Cannot perform action on village not owned by player');
         this.showMessage('You do not own this village', 'error');
         return;
       }
 
-      // Extract data from the event
-      const { troopType, quantity, buildingSlot, buildingType } = data;
+      // Format the command based on action type and element type
+      let command;
+      const { type, item_category, slot, buildingType, itemType } = data;
       
-      // Format the command - ensure troopType is lowercase to match the backend
-      const command = `train ${quantity} ${troopType.toLowerCase()}`;
+      if (actionType === 'upgrade') {
+        // Use item_category to determine if it's a field or building
+        if (item_category === 'resource') {
+          command = `upgrade field in ${slot}`;
+        } else {
+          command = `upgrade building in ${slot}`;
+        }
+      } else if (actionType === 'create') {
+        if (type === 'resource') {
+          command = `create ${buildingType} field in ${slot}`;
+        } else {
+          command = `create ${buildingType} building in ${slot}`;
+        }
+      } else if (actionType === 'destroy') {
+        // Use itemType to determine if it's a field or building
+        const destructionType = itemType || (item_category === 'resource' ? 'field' : 'building');
+        command = `destroy ${destructionType} in ${slot}`;
+      }
       
       // Execute the command
       apiService.executeCommand(this.focusedVillage.id, command)
         .then(response => {
           // Check if the command was successful
           if (response && response.success === false) {
-            const errorMessage = response.message || `Failed to train troops: ${command}`;
+            const errorMessage = response.message || `Failed to ${actionType}: ${command}`;
             this.showMessage(errorMessage, 'error');
             return;
           }
           
           // Show success message
-          this.showMessage(`Training ${quantity} ${getTroopTypeName(troopType)} started!`, 'success');
+          let successMessage;
+          if (actionType === 'upgrade') {
+            successMessage = 'Upgrading started!';
+          } else if (actionType === 'create') {
+            successMessage = 'Construction started!';
+          } else if (actionType === 'destroy') {
+            successMessage = 'Destruction started!';
+          }
+          this.showMessage(successMessage, 'success');
           
           // Make sure the dialog is closed
           this.selectionDialog.show = false;
@@ -2199,84 +2337,6 @@ export default {
               this.focusedVillage = {
                 ...updatedVillage,
                 resources: updatedVillage.resources || this.focusedVillage.resources
-              };
-            }
-            
-            // Update last refresh time
-            this.lastVillageRefresh = Date.now();
-          });
-        })
-        .catch(error => {
-          console.error('Failed to execute train troops command:', error);
-          this.showMessage(`Error: ${error.message || 'Failed to train troops'}`, 'error');
-        });
-    },
-    
-    handleConstructionAction(data, actionType) {
-      // Use the focused village
-      if (!this.focusedVillage) {
-        console.error('No focused village available for construction action');
-        this.showMessage('No village selected', 'error');
-        return;
-      }
-      
-      // Make sure the village is owned by the player
-      if (!this.focusedVillage.is_owned) {
-        console.error('Cannot perform action on village not owned by player');
-        this.showMessage('You do not own this village', 'error');
-        return;
-      }
-
-      // Format the command based on action type and element type
-      let command;
-      const { type, item_category, slot, buildingType } = data;
-      
-      if (actionType === 'upgrade') {
-        // Use item_category to determine if it's a field or building
-        if (item_category === 'resource') {
-          command = `upgrade field in ${slot}`;
-        } else {
-          command = `upgrade building in ${slot}`;
-        }
-      } else if (actionType === 'create') {
-        if (type === 'resource') {
-          command = `create ${buildingType} field in ${slot}`;
-        } else {
-          command = `create ${buildingType} building in ${slot}`;
-        }
-      }
-      
-      // Execute the command
-      apiService.executeCommand(this.focusedVillage.id, command)
-        .then(response => {
-          // Check if the command was successful
-          if (response && response.success === false) {
-            const errorMessage = response.message || `Failed to ${actionType}: ${command}`;
-            this.showMessage(errorMessage, 'error');
-            return;
-          }
-          
-          // Show success message
-          this.showMessage(`${actionType === 'upgrade' ? 'Upgrading' : 'Creating'} started!`, 'success');
-          
-          // Make sure the dialog is closed
-          this.selectionDialog.show = false;
-          
-          // Immediately fetch fresh data and update the focused village
-          this.fetchMapData().then(data => {
-            // Update the villages array with fresh data
-            this.villages = data.villages.map(village => ({
-              ...village,
-              resource_fields: village.resource_fields || Array(20).fill(null)
-            }));
-            
-            // Update the focused village with fresh data
-            const updatedVillage = this.villages.find(v => v.id === this.focusedVillage.id);
-            if (updatedVillage) {
-              // Create a new object to ensure Vue reactivity
-              this.focusedVillage = {
-                ...updatedVillage,
-                resources: updatedVillage.resources || this.focusedVillage.resources // Preserve resources if not in update
               };
             }
             

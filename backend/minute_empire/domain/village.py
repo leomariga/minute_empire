@@ -397,6 +397,40 @@ class Village:
                 print(f"[Village] Completed field upgrade: {field.type.value} to level {task.level}")
             else:
                 print(f"[Village] Failed to complete field upgrade task: Field not found in slot {task.slot}")
+        
+        elif task.task_type == TaskType.DESTROY_BUILDING:
+            # Find the building
+            building = self.get_building(task.slot)
+            if building:
+                # Get building type for logging
+                building_type = building.type.value
+                
+                # Remove building from village constructions
+                self._data.city.constructions = [c for c in self._data.city.constructions 
+                                             if c.slot != task.slot]
+                
+                # Clear building cache
+                self._buildings = None
+                print(f"[Village] Completed building destruction: {building_type} in slot {task.slot}")
+            else:
+                print(f"[Village] Failed to complete building destruction task: Building not found in slot {task.slot}")
+        
+        elif task.task_type == TaskType.DESTROY_FIELD:
+            # Find the field
+            field = self.get_resource_field(task.slot)
+            if field:
+                # Get field type for logging
+                field_type = field.type.value
+                
+                # Remove field from village resource fields
+                self._data.resource_fields = [f for f in self._data.resource_fields 
+                                          if f.slot != task.slot]
+                
+                # Clear resource field cache
+                self._resource_fields = None
+                print(f"[Village] Completed field destruction: {field_type} in slot {task.slot}")
+            else:
+                print(f"[Village] Failed to complete field destruction task: Field not found in slot {task.slot}")
                 
         # Mark village as changed
         self.mark_as_changed()

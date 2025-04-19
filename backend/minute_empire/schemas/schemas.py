@@ -39,6 +39,8 @@ class TaskType(str, Enum):
     UPGRADE_BUILDING = "upgrade_building"
     CREATE_FIELD = "create_field"
     UPGRADE_FIELD = "upgrade_field"
+    DESTROY_BUILDING = "destroy_building"
+    DESTROY_FIELD = "destroy_field"
 
 class Construction(BaseModel):
     type: ConstructionType

@@ -1,14 +1,19 @@
 <template>
-  <div class="game-panel" :class="{'disabled-panel': isBeingUpgraded}">
+  <div class="game-panel" :class="{
+    'disabled-panel': isBeingUpgraded,
+    'destroying-panel': isBeingDestroyed
+  }">
     <div class="panel-header">
-      <v-icon size="16" color="amber-darken-3" class="mr-2">mdi-hammer</v-icon>
-      <span>Upgrade</span>
-      <div class="level-indicator ml-1">→ Lv.{{ (item?.level || 0) + 1 }}</div>
+      <v-icon size="16" :color="isBeingDestroyed ? 'error-darken-2' : 'amber-darken-3'" class="mr-2">
+        {{ isBeingDestroyed ? 'mdi-delete-forever' : 'mdi-hammer' }}
+      </v-icon>
+      <span>{{ isBeingDestroyed ? 'Destroying' : 'Upgrade' }}</span>
+      <div class="level-indicator ml-1" v-if="!isBeingDestroyed">→ Lv.{{ (item?.level || 0) + 1 }}</div>
     </div>
     
     <div class="panel-content mini-padding">
       <!-- Resources and Time (only when not upgrading) -->
-      <div v-if="!isBeingUpgraded" class="mini-requirements">
+      <div v-if="!isBeingUpgraded && !isBeingDestroyed" class="mini-requirements">
         <div class="mini-resources">
           <!-- Display all resource types, default to 0 if not needed -->
           <div v-for="resourceType in ['wood', 'food', 'stone', 'iron']" 
@@ -26,24 +31,86 @@
         </div>
       </div>
       
-      <!-- Upgrade Button -->
-      <v-btn
-        block
-        class="mt-2 mini-btn"
-        :color="isBeingUpgraded ? 'info' : 'primary'"
-        :disabled="!canUpgrade || !hasSufficientResources || isBeingUpgraded"
-        @click="handleUpgrade"
-      >
-        <v-icon v-if="isBeingUpgraded" size="16" class="mr-1 rotating-icon">mdi-refresh</v-icon>
-        <v-icon v-else size="16" class="mr-1">mdi-arrow-up</v-icon>
-        <span>{{ isBeingUpgraded ? 'Upgrading' : 'Upgrade' }}</span>
-      </v-btn>
+      <!-- Destruction in Progress Message -->
+      <div v-if="isBeingDestroyed" class="destruction-message">
+        <v-icon size="18" color="error" class="mr-2 destroy-icon">mdi-alert</v-icon>
+        <span class="destruction-text">Destruction in progress...</span>
+      </div>
+      
+      <!-- Button Container -->
+      <div class="button-container">
+        <!-- Upgrade Button -->
+        <v-btn
+          class="mt-2 mini-btn action-btn primary-action"
+          :color="isBeingDestroyed ? 'error' : (isBeingUpgraded ? 'info' : 'primary')"
+          :disabled="!canUpgrade || !hasSufficientResources || isBeingUpgraded || isBeingDestroyed"
+          @click="handleUpgrade"
+          variant="elevated"
+        >
+          <v-icon v-if="isBeingDestroyed" size="16" class="mr-1 destroy-icon">mdi-delete-forever</v-icon>
+          <v-icon v-else-if="isBeingUpgraded" size="16" class="mr-1 rotating-icon">mdi-refresh</v-icon>
+          <v-icon v-else size="16" class="mr-1">mdi-arrow-up</v-icon>
+          <span>{{ isBeingDestroyed ? 'Destroying' : (isBeingUpgraded ? 'Upgrading' : 'Upgrade') }}</span>
+        </v-btn>
+        
+        <!-- Destroy Button -->
+        <v-btn
+          v-if="!isBeingUpgraded && !isBeingDestroyed && item.type !== 'town'"
+          color="error"
+          variant="outlined"
+          :loading="destructionInProgress"
+          class="mt-2 destroy-btn"
+          @click="openDestructionDialog"
+          :disabled="destructionInProgress"
+          size="small"
+          icon
+        >
+          <v-tooltip activator="parent" location="top">Destroy</v-tooltip>
+          <v-icon size="16">mdi-delete</v-icon>
+        </v-btn>
+      </div>
     </div>
+    
+    <!-- Destruction Confirmation Dialog -->
+    <teleport to="body">
+      <v-dialog
+        v-model="showConfirmDialog"
+        max-width="400"
+        persistent
+        class="confirmation-dialog"
+        :retain-focus="true"
+        :scrim="true"
+        :z-index="9999"
+        eager
+        width="90%"
+      >
+        <v-card elevation="24" class="destroy-dialog pa-0">
+          <v-card-title class="text-h6 pa-4 bg-error-lighten-4">
+            <v-icon color="error" class="mr-2">mdi-alert</v-icon>
+            Confirm Destruction
+          </v-card-title>
+          <v-card-text class="pa-4 pt-5">
+            <p class="mb-2">Are you sure you want to destroy this {{ item.type === 'food' || item.type === 'wood' || item.type === 'stone' || item.type === 'iron' ? 'resource field' : 'building' }}?</p>
+            <p class="text-caption">This action will permanently remove the item and cannot be undone.</p>
+          </v-card-text>
+          <v-card-actions class="pa-4 pt-2">
+            <v-spacer></v-spacer>
+            <v-btn color="grey" variant="text" @click="cancelDestruction">
+              Cancel
+            </v-btn>
+            <v-btn color="error" variant="elevated" @click="destroyItem">
+              Yes, Destroy
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-dialog>
+    </teleport>
   </div>
 </template>
 
 <script>
 import { getResourceColor, getResourceIcon } from '@/constants/gameElements';
+import apiService from '@/services/apiService';
 
 export default {
   name: 'UpgradePanel',
@@ -63,10 +130,46 @@ export default {
     }
   },
   
+  data() {
+    return {
+      showConfirmDialog: false,
+      destructionInProgress: false
+    };
+  },
+  
+  watch: {
+    showConfirmDialog(newVal) {
+      console.log('UpgradePanel - Confirm dialog visibility:', newVal);
+      // Force redraw when dialog is opened
+      if (newVal) {
+        this.$nextTick(() => {
+          window.dispatchEvent(new Event('resize'));
+        });
+      }
+    }
+  },
+  
   computed: {
     canUpgrade() {
       if (!this.item) return false;
       return this.item.level < 10 && !this.isBeingUpgraded;
+    },
+    
+    isBeingDestroyed() {
+      if (!this.village || !this.village.construction_tasks || !this.item) {
+        return false;
+      }
+      
+      // Check if there's an active destruction task for this item
+      const itemType = this.item.type === 'food' || this.item.type === 'wood' || 
+                      this.item.type === 'stone' || this.item.type === 'iron' ? 
+                      'field' : 'building';
+      
+      return this.village.construction_tasks.some(task => 
+        task.task_type === `destroy_${itemType}` && 
+        Number(task.slot) === Number(this.item.slot) &&
+        !task.processed
+      );
     },
     
     hasSufficientResources() {
@@ -162,6 +265,50 @@ export default {
       }
       
       return this.item.upgrade_cost[resourceType] || 0;
+    },
+    
+    openDestructionDialog() {
+      console.log("Opening destruction dialog");
+      this.showConfirmDialog = true;
+      
+      // Force a redraw of the dialog
+      this.$nextTick(() => {
+        console.log("Dialog state after nextTick:", this.showConfirmDialog);
+        setTimeout(() => {
+          const dialogElement = document.querySelector('.confirmation-dialog');
+          console.log("Dialog element found:", !!dialogElement);
+        }, 100);
+      });
+    },
+    
+    cancelDestruction() {
+      console.log("Cancelling destruction");
+      this.showConfirmDialog = false;
+    },
+    
+    destroyItem() {
+      console.log("Destruction confirmed, proceeding with destruction");
+      this.destructionInProgress = true;
+      
+      // Close the dialog
+      this.showConfirmDialog = false;
+      
+      // Determine if this is a resource field or a building
+      const itemType = this.item.type === 'food' || this.item.type === 'wood' || 
+                        this.item.type === 'stone' || this.item.type === 'iron' ? 
+                        'field' : 'building';
+      
+      // Emit the destroy event with the necessary data
+      // This follows the same pattern as handleUpgrade
+      this.$emit('destroy', {
+        type: this.item.type,
+        slot: this.item.slot,
+        itemType: itemType,
+        villageId: this.village.id
+      });
+      
+      // Reset the destruction progress state
+      this.destructionInProgress = false;
     }
   }
 }
@@ -205,6 +352,10 @@ export default {
   margin-left: 4px;
 }
 
+.ml-2 {
+  margin-left: 8px;
+}
+
 .level-indicator {
   font-weight: 600;
   font-size: 12px;
@@ -244,17 +395,65 @@ export default {
   color: #757575;
 }
 
-/* Mini Button */
+/* Buttons */
+.button-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+}
+
 .mini-btn {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   font-size: 13px;
   height: 32px;
+  min-width: 90px;
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Primary action (upgrade) takes more space */
+.primary-action {
+  flex: 3;
+}
+
+/* Square destroy button */
+.destroy-btn {
+  min-width: 36px !important;
+  width: 36px !important;
+  height: 36px !important;
+  padding: 0 !important;
+  margin-left: 8px !important;
+}
+
+.mt-2 {
+  margin-top: 8px;
+}
+
+.mr-1 {
+  margin-right: 4px;
 }
 
 .rotating-icon {
   animation: spin 2s linear infinite;
+}
+
+.destroy-icon {
+  animation: pulse 1.5s ease-in-out infinite;
+  color: #d32f2f !important; /* Dark red */
+}
+
+@keyframes pulse {
+  0% { opacity: 0.7; transform: scale(1); }
+  50% { opacity: 1; transform: scale(1.2); }
+  100% { opacity: 0.7; transform: scale(1); }
 }
 
 @keyframes spin {
@@ -264,5 +463,69 @@ export default {
   to {
     transform: rotate(360deg);
   }
+}
+
+/* Enhancement for dialog visibility */
+:deep(.confirmation-dialog) {
+  position: fixed !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000 !important;
+}
+
+/* Force dialog to be visible */
+:deep(.v-dialog) {
+  position: fixed !important;
+  z-index: 10000 !important;
+  max-height: 90vh;
+  margin: 0 auto;
+  width: 100%;
+  max-width: 400px !important;
+  display: flex !important;
+  box-shadow: 0 11px 15px -7px rgba(0,0,0,.2), 0 24px 38px 3px rgba(0,0,0,.14), 0 9px 46px 8px rgba(0,0,0,.12) !important;
+}
+
+:deep(.v-overlay__scrim) {
+  opacity: 0.7 !important;
+  background-color: rgba(0, 0, 0, 0.7) !important;
+}
+
+:deep(.v-overlay--active) {
+  z-index: 9999 !important;
+  position: fixed !important;
+  inset: 0px !important; 
+}
+
+.destroy-dialog {
+  z-index: 9999 !important;
+  position: relative;
+  overflow: visible !important;
+  border: 2px solid rgba(244, 67, 54, 0.3);
+}
+
+.destroying-panel {
+  opacity: 0.9;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+}
+
+.destroying-panel .panel-header {
+  background-color: rgba(244, 67, 54, 0.1);
+}
+
+/* Add CSS for the destruction message */
+.destruction-message {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  margin-bottom: 8px;
+  background-color: rgba(244, 67, 54, 0.08);
+  border-radius: 4px;
+}
+
+.destruction-text {
+  color: #d32f2f;
+  font-weight: 500;
+  font-size: 14px;
 }
 </style> 

@@ -27,6 +27,38 @@ class Troop:
         TroopType.PIKEMAN: {"atk": 1, "def": 2}
     }
     
+    # Backpack capacity for each troop type
+    BACKPACK_CAPACITY = {
+        TroopType.MILITIA: {
+            "wood": 50,
+            "stone": 50,
+            "iron": 50,
+            "food": 50,
+            "total": 100  # Total capacity across all resources
+        },
+        TroopType.ARCHER: {
+            "wood": 30,
+            "stone": 30,
+            "iron": 30,
+            "food": 30,
+            "total": 60
+        },
+        TroopType.LIGHT_CAVALRY: {
+            "wood": 100,
+            "stone": 100,
+            "iron": 100,
+            "food": 100,
+            "total": 250  # Cavalry can carry more due to horses
+        },
+        TroopType.PIKEMAN: {
+            "wood": 70,
+            "stone": 70,
+            "iron": 70,
+            "food": 70,
+            "total": 150
+        }
+    }
+    
     @staticmethod
     def get_training_cost(troop_type: TroopType, quantity: int) -> Dict[str, int]:
         """Calculate the total training cost for a given troop type and quantity"""
@@ -142,4 +174,19 @@ class Troop:
         for coord_x, coord_y in valid_coords:
             valid_spots.append({"x": coord_x, "y": coord_y})
             
-        return valid_spots 
+        return valid_spots
+        
+    @staticmethod
+    def get_backpack_capacity(troop_type: TroopType, quantity: int = 1) -> Dict[str, int]:
+        """
+        Calculate the total backpack capacity for a given troop type and quantity
+        
+        Args:
+            troop_type: The type of the troop
+            quantity: The number of troops
+            
+        Returns:
+            Dictionary with capacity limits for each resource type and total capacity
+        """
+        base_capacity = Troop.BACKPACK_CAPACITY[troop_type]
+        return {resource: limit * quantity for resource, limit in base_capacity.items()} 

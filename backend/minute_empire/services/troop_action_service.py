@@ -7,7 +7,7 @@ import logging
 from minute_empire.repositories.village_repository import VillageRepository
 from minute_empire.repositories.troops_repository import TroopsRepository
 from minute_empire.repositories.troop_action_repository import TroopActionRepository
-from minute_empire.schemas.schemas import ActionType, TroopType, TroopMode, Location
+from minute_empire.schemas.schemas import ActionType, TroopType, TroopMode, Location, VillageInDB
 from minute_empire.domain.troop import Troop
 from minute_empire.services.task_scheduler import task_scheduler
 from minute_empire.services.websocket_service import websocket_service
@@ -122,7 +122,7 @@ class TroopActionService:
         # Calculate movement time based on distance
         distance = abs(target_x - troop.location.x) + abs(target_y - troop.location.y)
         # 1 minute per tile is a reasonable starting point
-        movement_time_minutes = distance
+        movement_time_minutes = 0.2#distance
         
         # Calculate completion time
         now = datetime.utcnow()
@@ -312,6 +312,13 @@ class TroopActionService:
                 for enemy_troop in enemy_troops:
                     involved_villages.add(enemy_troop.home_id)
                 
+                # Check if there's a village at the target location
+                target_village = await self.village_repository.find_by_location(
+                    action.target_location.x, action.target_location.y
+                )
+                if target_village:
+                    involved_villages.add(target_village.id)
+                
                 # Update resources for all involved villages before combat
                 await self._update_all_village_resources(involved_villages, completion_time)
                 
@@ -346,9 +353,19 @@ class TroopActionService:
                             logger.error(f"Failed to update troop {troop.id} location after combat")
                             
                     result["combat"] = combat_result
+                    
+                    # Add stolen resources to result if any
+                    if "stolen_resources" in combat_result:
+                        result["stolen_resources"] = combat_result["stolen_resources"]
+                        
+                    # Add captured resources to result if any
+                    if "captured_by_attacker" in combat_result:
+                        result["captured_by_attacker"] = combat_result["captured_by_attacker"]
+                        
+                    if "captured_by_defenders" in combat_result:
+                        result["captured_by_defenders"] = combat_result["captured_by_defenders"]
                 else:
                     # No enemy troops, just move
-                    
                     update_data = {
                         "location": {
                             "x": action.target_location.x,
@@ -364,6 +381,44 @@ class TroopActionService:
                         logger.error(f"Failed to update troop {troop.id} location")
                         result["success"] = False
                         result["error"] = "Failed to update troop location"
+                    
+                    # Check if we moved to an undefended enemy village - if so, steal resources
+                    if target_village and target_village.owner_id != troop.home_id:
+                        # Get the home village to check ownership
+                        home_village = await self.village_repository.get_by_id(troop.home_id)
+                        if home_village and home_village.owner_id != target_village.owner_id:
+                            # This is an enemy village with no defending troops, steal resources
+                            stolen_resources = await self._steal_resources(
+                                attacker_troop=troop,
+                                target_village=target_village,
+                                new_attacker_quantity=troop.quantity
+                            )
+                            
+                            if any(value > 0 for value in stolen_resources.values()):
+                                result["stolen_resources"] = stolen_resources
+                                logger.info(f"Troops stole resources from undefended village {target_village.id}")
+                    
+                    # Check if the target location has a village owned by the same user, if so deposit resources
+                    if target_village:
+                        logger.info(f"Checking if target village {target_village.id} has a village owned by the same user")
+                        if hasattr(troop, 'backpack'):
+                            logger.info(f"[RESOURCE_DEBUG] Troop has a backpack, checking ownership")
+                            # Get the home village to check ownership
+                            home_village = await self.village_repository.get_by_id(troop.home_id)
+                            logger.info(f"[RESOURCE_DEBUG] Home village: {home_village}")
+                            if home_village and target_village.owner_id == home_village.owner_id:
+                                logger.info(f"[RESOURCE_DEBUG] Target village is owned by the same user, depositing resources")
+                                # This is a friendly village, deposit resources
+                                deposited_resources = await self._deposit_resources(
+                                    troop=troop,
+                                    target_village=target_village
+                                )
+                                
+                                if any(value > 0 for value in deposited_resources.values()):
+                                    result["deposited_resources"] = deposited_resources
+                                    logger.info(f"Troops deposited resources to friendly village {target_village.id}")
+                    else:
+                        logger.info(f"No village found at target location ({action.target_location.x}, {action.target_location.y})")
             
             elif action.action_type == ActionType.ATTACK:
                 # Get enemy troops at the target location
@@ -401,6 +456,17 @@ class TroopActionService:
                         await self.troops_repository.update(troop.id, {"mode": TroopMode.IDLE.value})
                         
                     result["combat"] = combat_result
+                    
+                    # Add stolen resources to result if any
+                    if "stolen_resources" in combat_result:
+                        result["stolen_resources"] = combat_result["stolen_resources"]
+                        
+                    # Add captured resources to result if any
+                    if "captured_by_attacker" in combat_result:
+                        result["captured_by_attacker"] = combat_result["captured_by_attacker"]
+                        
+                    if "captured_by_defenders" in combat_result:
+                        result["captured_by_defenders"] = combat_result["captured_by_defenders"]
                 else:
                     # No enemies at target, just update mode back to idle
                     # Even without combat, still update resources for the attacker's home village
@@ -408,6 +474,22 @@ class TroopActionService:
                     
                     await self.troops_repository.update(troop.id, {"mode": TroopMode.IDLE.value})
                     logger.info(f"Attack completed for troop {troop.id} but no enemies found at ({action.target_location.x}, {action.target_location.y})")
+                    
+                    # If there's an enemy village with no defenders, troops should still be able to steal resources during attack
+                    if target_village and target_village.owner_id != troop.home_id:
+                        # Get the home village to check ownership
+                        home_village = await self.village_repository.get_by_id(troop.home_id)
+                        if home_village and home_village.owner_id != target_village.owner_id:
+                            # This is an enemy village with no defending troops, steal resources
+                            stolen_resources = await self._steal_resources(
+                                attacker_troop=troop,
+                                target_village=target_village,
+                                new_attacker_quantity=troop.quantity
+                            )
+                            
+                            if any(value > 0 for value in stolen_resources.values()):
+                                result["stolen_resources"] = stolen_resources
+                                logger.info(f"Troops stole resources from undefended village {target_village.id}")
             
             # Mark action as processed
             await self.action_repository.mark_processed(action_id)
@@ -589,12 +671,28 @@ class TroopActionService:
         # Calculate actual losses
         attacker_quantity_lost = int(attacker_troop.quantity * attacker_loss)
         new_attacker_quantity = attacker_troop.quantity - attacker_quantity_lost
+
+        # Save original quantities and resources for redistribution
+        original_attacker_quantity = attacker_troop.quantity
+        attacker_backpack = attacker_troop.backpack.dict() if hasattr(attacker_troop, 'backpack') else {}
+        
+        # Save original defender quantities and resources
+        defender_data = []
+        for defender_troop in defender_troops:
+            defender_backpack = defender_troop.backpack.dict() if hasattr(defender_troop, 'backpack') else {}
+            defender_data.append({
+                "id": defender_troop.id,
+                "type": defender_troop.type,
+                "quantity": defender_troop.quantity,
+                "backpack": defender_backpack
+            })
         
         # Apply losses to attacker
         if attacker_all_dead or new_attacker_quantity <= 0:
             # All attacker troops die - delete them from database instead of marking as DEAD
             await self.troops_repository.delete(attacker_troop.id)
             attacker_all_dead = True
+            new_attacker_quantity = 0
         else:
             # Update attacker with new quantity
             await self.troops_repository.update(attacker_troop.id, {
@@ -603,6 +701,7 @@ class TroopActionService:
             
         # Apply losses to each defender troop
         all_defenders_defeated = True
+        surviving_defenders = []
         for defender_troop in defender_troops:
             defender_quantity_lost = int(defender_troop.quantity * defender_loss)
             new_defender_quantity = defender_troop.quantity - defender_quantity_lost
@@ -616,12 +715,55 @@ class TroopActionService:
                     "quantity": new_defender_quantity
                 })
                 all_defenders_defeated = False
+                surviving_defenders.append({
+                    "troop": defender_troop,
+                    "new_quantity": new_defender_quantity
+                })
+        
+        # Redistribute resources from fallen troops to survivors
+        redistributed_resources = {}
+        captured_attacker_resources = {}
+        captured_defender_resources = {}
+        
+        if defender_loss > 0 or attacker_loss > 0:
+            # Only redistribute if there are survivors on either side
+            redistributed_resources = await self._redistribute_combat_resources(
+                attacker_troop=attacker_troop,
+                attacker_all_dead=attacker_all_dead,
+                original_attacker_quantity=original_attacker_quantity,
+                new_attacker_quantity=new_attacker_quantity,
+                attacker_backpack=attacker_backpack,
+                defender_troops=defender_troops,
+                surviving_defenders=surviving_defenders,
+                defender_data=defender_data
+            )
+            
+            # Extract relevant data from redistribution result
+            if "captured_by_attacker" in redistributed_resources:
+                captured_attacker_resources = redistributed_resources["captured_by_attacker"]
+            if "captured_by_defenders" in redistributed_resources:
+                captured_defender_resources = redistributed_resources["captured_by_defenders"]
+        
+        # Resource stealing logic from villages
+        stolen_resources = {}
+        if is_movement and all_defenders_defeated and not attacker_all_dead:
+            # Check if there's a village at the target location to steal from
+            target_village = await self.village_repository.find_by_location(
+                target_location.x, target_location.y
+            )
+            
+            if target_village:
+                stolen_resources = await self._steal_resources(
+                    attacker_troop=attacker_troop,
+                    target_village=target_village,
+                    new_attacker_quantity=new_attacker_quantity
+                )
         
         # Detailed combat log for debugging
         logger.info(f"Combat result: Attacker loss: {attacker_loss:.2f} ({attacker_quantity_lost} troops), Defender loss: {defender_loss:.2f}")
         logger.info(f"Combat outcome: Attacker all dead: {attacker_all_dead}, All defenders defeated: {all_defenders_defeated}")
         
-        return {
+        combat_result = {
             "attacker_id": attacker_troop.id,
             "defender_ids": [troop.id for troop in defender_troops],
             "attacker_loss": attacker_loss,
@@ -630,4 +772,605 @@ class TroopActionService:
             "all_defenders_defeated": all_defenders_defeated,
             "attacker_quantity_lost": attacker_quantity_lost,
             "location": {"x": target_location.x, "y": target_location.y}
-        } 
+        }
+        
+        # Add stolen resources to result if any
+        if stolen_resources:
+            combat_result["stolen_resources"] = stolen_resources
+            
+        # Add captured resources to result if any
+        if captured_attacker_resources:
+            combat_result["captured_by_attacker"] = captured_attacker_resources
+            
+        if captured_defender_resources:
+            combat_result["captured_by_defenders"] = captured_defender_resources
+            
+        return combat_result
+
+    async def _redistribute_combat_resources(
+        self,
+        attacker_troop: Any,
+        attacker_all_dead: bool,
+        original_attacker_quantity: int,
+        new_attacker_quantity: int,
+        attacker_backpack: Dict[str, int],
+        defender_troops: List[Any],
+        surviving_defenders: List[Dict[str, Any]],
+        defender_data: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Redistribute resources from fallen troops to surviving troops based on proportional losses.
+        
+        Args:
+            attacker_troop: The attacking troop
+            attacker_all_dead: Whether all attacker troops died
+            original_attacker_quantity: Original quantity of attacker troops before combat
+            new_attacker_quantity: New quantity of attacker troops after combat
+            attacker_backpack: Attacker's backpack resources
+            defender_troops: List of all defending troops involved in combat
+            surviving_defenders: List of surviving defender troops with new quantities
+            defender_data: Original data of defender troops before combat
+            
+        Returns:
+            Dict with resource redistribution results
+        """
+        logger.info(f"[RESOURCE_DEBUG] Starting resource redistribution | Attacker: {attacker_troop.id} | Original qty: {original_attacker_quantity} → New qty: {new_attacker_quantity} | Attacker dead: {attacker_all_dead}")
+        logger.info(f"[RESOURCE_DEBUG] Attacker initial backpack: {attacker_backpack}")
+        logger.info(f"[RESOURCE_DEBUG] Defenders: {len(defender_troops)} | Surviving defenders: {len(surviving_defenders)}")
+        
+        result = {}
+        resource_types = ["wood", "stone", "iron", "food"]
+        
+        # 1. Calculate resources from fallen attacker troops
+        attacker_lost_resources = {}
+        if original_attacker_quantity > 0 and new_attacker_quantity < original_attacker_quantity:
+            # Calculate what proportion of troops were lost
+            attacker_loss_ratio = (original_attacker_quantity - new_attacker_quantity) / original_attacker_quantity
+            logger.info(f"[RESOURCE_DEBUG] Attacker loss ratio: {attacker_loss_ratio:.4f}")
+            
+            # Calculate resources lost based on this ratio
+            for resource_type in resource_types:
+                resource_amount = attacker_backpack.get(resource_type, 0)
+                if resource_amount > 0:
+                    # Calculate amount lost from fallen troops
+                    lost_amount = resource_amount * attacker_loss_ratio
+                    attacker_lost_resources[resource_type] = lost_amount
+                    
+                    # If attacker survived, update their backpack to keep protected resources
+                    if not attacker_all_dead:
+                        protected_amount = resource_amount - lost_amount
+                        attacker_backpack[resource_type] = protected_amount
+            
+            logger.info(f"[RESOURCE_DEBUG] Attacker lost resources: {attacker_lost_resources}")
+            if not attacker_all_dead:
+                logger.info(f"[RESOURCE_DEBUG] Attacker kept resources: {attacker_backpack}")
+        
+        # 2. Calculate resources from fallen defender troops
+        defender_lost_resources = {resource_type: 0 for resource_type in resource_types}
+        for defender_data_item in defender_data:
+            defender_id = defender_data_item["id"]
+            original_quantity = defender_data_item["quantity"]
+            backpack = defender_data_item.get("backpack", {})
+            
+            # Find if this defender survived
+            survived = False
+            new_quantity = 0
+            for surviving in surviving_defenders:
+                if surviving["troop"].id == defender_id:
+                    survived = True
+                    new_quantity = surviving["new_quantity"]
+                    break
+                    
+            if original_quantity > 0 and (not survived or new_quantity < original_quantity):
+                # Calculate what proportion of troops were lost
+                defender_loss_ratio = 1.0 if not survived else (original_quantity - new_quantity) / original_quantity
+                logger.info(f"[RESOURCE_DEBUG] Defender {defender_id} loss ratio: {defender_loss_ratio:.4f} | Original: {original_quantity} → New: {new_quantity if survived else 0}")
+                logger.info(f"[RESOURCE_DEBUG] Defender {defender_id} initial backpack: {backpack}")
+                
+                # Calculate resources lost based on this ratio
+                defender_troop_lost = {}
+                for resource_type in resource_types:
+                    resource_amount = backpack.get(resource_type, 0)
+                    if resource_amount > 0:
+                        lost_amount = resource_amount * defender_loss_ratio
+                        defender_lost_resources[resource_type] += lost_amount
+                        defender_troop_lost[resource_type] = lost_amount
+                        
+                        # If defender survived, update their backpack
+                        if survived:
+                            protected_amount = resource_amount - lost_amount
+                            # Get the actual defender troop object
+                            for surviving in surviving_defenders:
+                                if surviving["troop"].id == defender_id:
+                                    defender_troop = surviving["troop"]
+                                    
+                                    # Update defender's backpack
+                                    defender_backpack = defender_troop.backpack.dict() if hasattr(defender_troop, 'backpack') else {}
+                                    defender_backpack[resource_type] = protected_amount
+                                    
+                                    # Save to database
+                                    await self.troops_repository.update(defender_id, {
+                                        "backpack": defender_backpack
+                                    })
+                                    break
+                
+                logger.info(f"[RESOURCE_DEBUG] Defender {defender_id} lost resources: {defender_troop_lost}")
+                if survived:
+                    current_defender = next((s for s in surviving_defenders if s["troop"].id == defender_id), None)
+                    if current_defender:
+                        defender_backpack = current_defender["troop"].backpack.dict() if hasattr(current_defender["troop"], 'backpack') else {}
+                        logger.info(f"[RESOURCE_DEBUG] Defender {defender_id} kept resources: {defender_backpack}")
+        
+        logger.info(f"[RESOURCE_DEBUG] Total defender lost resources: {defender_lost_resources}")
+        
+        # 3. Distribute lost resources to survivors
+        captured_by_attacker = {}
+        captured_by_defenders = {}
+        
+        # First, check if there are any resources to distribute
+        has_attacker_lost_resources = any(amount > 0 for amount in attacker_lost_resources.values())
+        has_defender_lost_resources = any(amount > 0 for amount in defender_lost_resources.values())
+        
+        logger.info(f"[RESOURCE_DEBUG] Has attacker lost resources: {has_attacker_lost_resources} | Has defender lost resources: {has_defender_lost_resources}")
+        
+        if has_attacker_lost_resources and len(surviving_defenders) > 0:
+            logger.info(f"[RESOURCE_DEBUG] Distributing attacker resources to {len(surviving_defenders)} surviving defenders")
+            # Attacker lost resources that can be captured by surviving defenders
+            # Calculate total capacity of all surviving defenders
+            total_defender_capacity = {}
+            for surviving in surviving_defenders:
+                defender_troop = surviving["troop"]
+                new_quantity = surviving["new_quantity"]
+                
+                # Get current backpack
+                defender_backpack = defender_troop.backpack.dict() if hasattr(defender_troop, 'backpack') else {}
+                
+                # Calculate remaining capacity
+                capacity = Troop.get_backpack_capacity(defender_troop.type, new_quantity)
+                remaining_capacity = {
+                    resource_type: capacity.get(resource_type, 0) - defender_backpack.get(resource_type, 0) 
+                    for resource_type in resource_types
+                }
+                
+                total_defender_capacity[defender_troop.id] = {
+                    "remaining": remaining_capacity,
+                    "total": capacity.get("total", 0),
+                    "current_total": sum(defender_backpack.get(resource_type, 0) for resource_type in resource_types)
+                }
+                
+                logger.info(f"[RESOURCE_DEBUG] Defender {defender_troop.id} capacity: {capacity}")
+                logger.info(f"[RESOURCE_DEBUG] Defender {defender_troop.id} remaining capacity: {remaining_capacity}")
+            
+            # Distribute attacker lost resources to defenders
+            for resource_type, lost_amount in attacker_lost_resources.items():
+                if lost_amount <= 0:
+                    continue
+                
+                # Calculate total remaining capacity for this resource type across all defenders
+                total_capacity_for_resource = sum(
+                    data["remaining"].get(resource_type, 0) 
+                    for data in total_defender_capacity.values()
+                )
+                
+                logger.info(f"[RESOURCE_DEBUG] Distributing {resource_type}: {lost_amount} | Total defender capacity: {total_capacity_for_resource}")
+                
+                if total_capacity_for_resource > 0:
+                    # Distribute proportionally based on capacity
+                    distributed_amount = 0
+                    for surviving in surviving_defenders:
+                        defender_troop = surviving["troop"]
+                        defender_id = defender_troop.id
+                        
+                        if defender_id not in total_defender_capacity:
+                            continue
+                        
+                        capacity_data = total_defender_capacity[defender_id]
+                        resource_capacity = capacity_data["remaining"].get(resource_type, 0)
+                        
+                        if resource_capacity <= 0:
+                            continue
+                            
+                        # Calculate proportion of total capacity
+                        proportion = resource_capacity / total_capacity_for_resource
+                        
+                        # Calculate amount to give to this defender
+                        amount_to_give = min(lost_amount * proportion, resource_capacity)
+                        distributed_amount += amount_to_give
+                        
+                        logger.info(f"[RESOURCE_DEBUG] Giving {resource_type}: {amount_to_give} to defender {defender_id} (proportion: {proportion:.4f})")
+                        
+                        # Update defender's backpack
+                        defender_backpack = defender_troop.backpack.dict() if hasattr(defender_troop, 'backpack') else {}
+                        defender_backpack[resource_type] = defender_backpack.get(resource_type, 0) + amount_to_give
+                        
+                        # Update remaining capacity
+                        capacity_data["remaining"][resource_type] -= amount_to_give
+                        capacity_data["current_total"] += amount_to_give
+                        
+                        # Save to database
+                        await self.troops_repository.update(defender_id, {
+                            "backpack": defender_backpack
+                        })
+                        
+                        logger.info(f"[RESOURCE_DEBUG] Defender {defender_id} updated backpack: {defender_backpack}")
+                    
+                    # Track captured resources
+                    if distributed_amount > 0:
+                        captured_by_defenders[resource_type] = distributed_amount
+            
+            logger.info(f"[RESOURCE_DEBUG] Total captured by defenders: {captured_by_defenders}")
+        
+        if has_defender_lost_resources and not attacker_all_dead:
+            logger.info(f"[RESOURCE_DEBUG] Distributing defender resources to surviving attacker")
+            # Defender lost resources that can be captured by surviving attacker
+            # Calculate remaining capacity for attacker
+            capacity = Troop.get_backpack_capacity(attacker_troop.type, new_attacker_quantity)
+            remaining_capacity = {
+                resource_type: capacity.get(resource_type, 0) - attacker_backpack.get(resource_type, 0) 
+                for resource_type in resource_types
+            }
+            total_remaining = capacity.get("total", 0) - sum(attacker_backpack.get(resource_type, 0) for resource_type in resource_types)
+            
+            logger.info(f"[RESOURCE_DEBUG] Attacker capacity: {capacity}")
+            logger.info(f"[RESOURCE_DEBUG] Attacker remaining capacity: {remaining_capacity}")
+            logger.info(f"[RESOURCE_DEBUG] Attacker total remaining capacity: {total_remaining}")
+            
+            # Distribute defender lost resources to attacker
+            for resource_type, lost_amount in defender_lost_resources.items():
+                if lost_amount <= 0:
+                    continue
+                
+                resource_capacity = remaining_capacity.get(resource_type, 0)
+                logger.info(f"[RESOURCE_DEBUG] Distributing {resource_type}: {lost_amount} | Attacker capacity: {resource_capacity}")
+                
+                if resource_capacity > 0:
+                    # Calculate amount to give to attacker
+                    amount_to_give = min(lost_amount, resource_capacity)
+                    
+                    # Update attacker's backpack
+                    attacker_backpack[resource_type] = attacker_backpack.get(resource_type, 0) + amount_to_give
+                    
+                    # Update remaining capacity
+                    remaining_capacity[resource_type] -= amount_to_give
+                    total_remaining -= amount_to_give
+                    
+                    # Track captured resources
+                    captured_by_attacker[resource_type] = amount_to_give
+                    
+                    logger.info(f"[RESOURCE_DEBUG] Giving {resource_type}: {amount_to_give} to attacker")
+            
+            # Save attacker's backpack to database
+            if any(captured_by_attacker.values()):
+                await self.troops_repository.update(attacker_troop.id, {
+                    "backpack": attacker_backpack
+                })
+                logger.info(f"[RESOURCE_DEBUG] Attacker updated backpack: {attacker_backpack}")
+            
+            logger.info(f"[RESOURCE_DEBUG] Total captured by attacker: {captured_by_attacker}")
+        
+        # Return results
+        if captured_by_attacker:
+            result["captured_by_attacker"] = captured_by_attacker
+            
+        if captured_by_defenders:
+            result["captured_by_defenders"] = captured_by_defenders
+        
+        logger.info(f"[RESOURCE_DEBUG] Redistribution result: {result}")
+            
+        return result
+
+    async def _steal_resources(self, attacker_troop: Any, target_village: Any, new_attacker_quantity: int) -> Dict[str, float]:
+        """
+        Calculate and transfer resources from a target village to an attacker's troops
+        
+        Args:
+            attacker_troop: The attacking troop
+            target_village: The village to steal from
+            new_attacker_quantity: The quantity of attacking troops after combat
+            
+        Returns:
+            Dict with amounts of resources stolen
+        """
+        logger.info(f"[RESOURCE_DEBUG] Starting resource stealing | Attacker: {attacker_troop.id} | Target: {target_village.id} | Troop qty: {new_attacker_quantity}")
+        
+        # Calculate troop's backpack capacity
+        capacity = Troop.get_backpack_capacity(attacker_troop.type, new_attacker_quantity)
+        logger.info(f"[RESOURCE_DEBUG] Attacker capacity: {capacity}")
+        
+        # Get current backpack content
+        current_backpack = attacker_troop.backpack.dict() if hasattr(attacker_troop, 'backpack') else {}
+        logger.info(f"[RESOURCE_DEBUG] Current backpack: {current_backpack}")
+        
+        # Calculate remaining capacity
+        remaining_capacity = {
+            resource_type: capacity.get(resource_type, 0) - current_backpack.get(resource_type, 0) 
+            for resource_type in ["wood", "stone", "iron", "food"]
+        }
+        logger.info(f"[RESOURCE_DEBUG] Remaining capacity: {remaining_capacity}")
+        
+        # Initialize stolen resources
+        stolen_resources = {"wood": 0, "stone": 0, "iron": 0, "food": 0}
+        
+        # Get current resources from village
+        village_resources = {
+            "wood": target_village.resources.wood,
+            "stone": target_village.resources.stone,
+            "iron": target_village.resources.iron,
+            "food": target_village.resources.food
+        }
+        logger.info(f"[RESOURCE_DEBUG] Village resources: {village_resources}")
+        
+        # Calculate total resources available in the village
+        total_village_resources = sum(village_resources.values())
+        
+        if total_village_resources <= 0:
+            # No resources to steal
+            logger.info("[RESOURCE_DEBUG] No resources to steal from village")
+            return stolen_resources
+            
+        # Define resource types
+        resource_types = ["wood", "stone", "iron", "food"]
+        
+        # Calculate max total capacity
+        max_total_capacity = capacity["total"] - sum(current_backpack.get(resource_type, 0) for resource_type in resource_types)
+        logger.info(f"[RESOURCE_DEBUG] Max total capacity: {max_total_capacity}")
+        
+        # First pass: Take resources proportionally based on village's resources
+        remaining_total_capacity = max_total_capacity
+        depleted_resources = []
+        
+        for resource_type in resource_types:
+            if remaining_total_capacity <= 0:
+                logger.info("[RESOURCE_DEBUG] No remaining capacity")
+                break
+                
+            # Calculate proportion of this resource in village
+            resource_proportion = village_resources[resource_type] / total_village_resources if total_village_resources > 0 else 0
+            
+            # Calculate how much to steal based on proportion
+            to_steal = min(
+                remaining_total_capacity * resource_proportion,  # Proportional amount
+                remaining_capacity[resource_type],  # Resource-specific capacity
+                village_resources[resource_type]  # Available in village
+            )
+            
+            stolen_resources[resource_type] = to_steal
+            remaining_total_capacity -= to_steal
+            
+            logger.info(f"[RESOURCE_DEBUG] First pass stealing {resource_type}: {to_steal} (proportion: {resource_proportion:.4f})")
+            
+            # Check if we've depleted this resource
+            if to_steal >= village_resources[resource_type] - 0.001:  # Using a small epsilon to account for floating point errors
+                depleted_resources.append(resource_type)
+                logger.info(f"[RESOURCE_DEBUG] Depleted {resource_type} from village")
+        
+        logger.info(f"[RESOURCE_DEBUG] After first pass - Stolen: {stolen_resources} | Remaining capacity: {remaining_total_capacity} | Depleted: {depleted_resources}")
+        
+        # Second pass: Redistribute remaining capacity to non-depleted resources
+        while remaining_total_capacity > 0.001 and len(depleted_resources) < len(resource_types):
+            # Recalculate total available resources excluding depleted ones
+            available_resources = {r: village_resources[r] - stolen_resources[r] 
+                                 for r in resource_types if r not in depleted_resources}
+            
+            total_available = sum(available_resources.values())
+            if total_available <= 0:
+                logger.info("[RESOURCE_DEBUG] No more resources available in second pass")
+                break
+                
+            logger.info(f"[RESOURCE_DEBUG] Second pass - Available resources: {available_resources} | Total available: {total_available}")
+                
+            # Calculate new proportions
+            made_progress = False
+            for resource_type, available in available_resources.items():
+                if available <= 0:
+                    continue
+                    
+                resource_proportion = available / total_available
+                additional_capacity = remaining_capacity[resource_type] - stolen_resources[resource_type]
+                
+                if additional_capacity <= 0:
+                    # Already at capacity for this resource type
+                    depleted_resources.append(resource_type)
+                    logger.info(f"[RESOURCE_DEBUG] Resource {resource_type} at capacity")
+                    continue
+                
+                # Calculate additional amount to steal
+                additional_to_steal = min(
+                    remaining_total_capacity * resource_proportion,
+                    additional_capacity,
+                    available
+                )
+                
+                if additional_to_steal > 0:
+                    stolen_resources[resource_type] += additional_to_steal
+                    remaining_total_capacity -= additional_to_steal
+                    made_progress = True
+                    
+                    logger.info(f"[RESOURCE_DEBUG] Second pass stealing additional {resource_type}: {additional_to_steal} (proportion: {resource_proportion:.4f})")
+                    
+                    # Check if depleted
+                    if stolen_resources[resource_type] >= village_resources[resource_type] - 0.001:
+                        depleted_resources.append(resource_type)
+                        logger.info(f"[RESOURCE_DEBUG] Depleted {resource_type} from village in second pass")
+                
+            # If we couldn't make progress, break
+            if not made_progress:
+                logger.info("[RESOURCE_DEBUG] Could not make progress in second pass")
+                break
+        
+        logger.info(f"[RESOURCE_DEBUG] Final stolen resources before transfer: {stolen_resources}")
+        
+        # Now update village and troop resources
+        await self._transfer_resources(target_village.id, attacker_troop.id, stolen_resources)
+        
+        logger.info(f"[RESOURCE_DEBUG] Resources stolen: {stolen_resources} from village {target_village.id} by troop {attacker_troop.id}")
+        
+        return stolen_resources
+
+    async def _transfer_resources(self, from_village_id: str, to_troop_id: str, resources: Dict[str, float]) -> None:
+        """
+        Transfer resources from a village to a troop's backpack
+        
+        Args:
+            from_village_id: The ID of the village to take resources from
+            to_troop_id: The ID of the troop to receive resources
+            resources: Dictionary of resources to transfer
+        """
+        logger.info(f"[RESOURCE_DEBUG] Transferring resources | From village: {from_village_id} | To troop: {to_troop_id} | Resources: {resources}")
+        
+        # Round resources to integers to avoid floating point issues
+        rounded_resources = {k: round(v) for k, v in resources.items()}
+        logger.info(f"[RESOURCE_DEBUG] Rounded resources: {rounded_resources}")
+        
+        # Get the village
+        from minute_empire.domain.village import Village
+        village_data = await self.village_repository.get_by_id(from_village_id)
+        if not village_data:
+            logger.error(f"[RESOURCE_DEBUG] Village {from_village_id} not found when trying to transfer resources")
+            return
+            
+        village = village_data  # It's already a Village object, no need to wrap it
+        
+        # Get the troop
+        troop = await self.troops_repository.get_by_id(to_troop_id)
+        if not troop:
+            logger.error(f"[RESOURCE_DEBUG] Troop {to_troop_id} not found when trying to transfer resources")
+            return
+        
+        # Log village resources before transfer
+        logger.info(f"[RESOURCE_DEBUG] Village resources before transfer: wood={village.resources.wood}, stone={village.resources.stone}, iron={village.resources.iron}, food={village.resources.food}")
+            
+        # Update troop's backpack
+        backpack = troop.backpack.dict() if hasattr(troop, 'backpack') else {}
+        logger.info(f"[RESOURCE_DEBUG] Troop backpack before transfer: {backpack}")
+        
+        resources_modified = False
+        
+        for resource_type, amount in rounded_resources.items():
+            if amount > 0:
+                # Deduct from village
+                current_village_amount = getattr(village.resources, resource_type, 0)
+                if current_village_amount >= amount:
+                    setattr(village.resources, resource_type, current_village_amount - amount)
+                    resources_modified = True
+                    logger.info(f"[RESOURCE_DEBUG] Deducted {amount} {resource_type} from village")
+                    
+                    # Add to troop
+                    backpack[resource_type] = backpack.get(resource_type, 0) + amount
+                    logger.info(f"[RESOURCE_DEBUG] Added {amount} {resource_type} to troop")
+                else:
+                    logger.warning(f"[RESOURCE_DEBUG] Not enough {resource_type} in village: have {current_village_amount}, need {amount}")
+        
+        # Save changes to village
+        if resources_modified:
+            # Mark the village as changed which updates the timestamp
+            village.mark_as_changed()
+            
+            # Save the village directly using the repository
+            save_result = await self.village_repository.save(village)
+            if save_result:
+                logger.info(f"[RESOURCE_DEBUG] Village resources after transfer successfully saved: wood={village.resources.wood}, stone={village.resources.stone}, iron={village.resources.iron}, food={village.resources.food}")
+            else:
+                logger.error(f"[RESOURCE_DEBUG] Failed to save village {from_village_id} after resource transfer")
+        
+        # Save changes to troop
+        if resources_modified:
+            await self.troops_repository.update(troop.id, {"backpack": backpack})
+            logger.info(f"[RESOURCE_DEBUG] Troop backpack after transfer: {backpack}")
+        else:
+            logger.info("[RESOURCE_DEBUG] No resources were modified during transfer")
+
+    async def _deposit_resources(self, troop: Any, target_village: Any) -> Dict[str, float]:
+        """
+        Deposit resources from a troop's backpack into a friendly village.
+        If the village storage is full, the excess resources are lost.
+        
+        Args:
+            troop: The troop carrying resources
+            target_village: The village to deposit resources into
+            
+        Returns:
+            dict: A dictionary of the deposited resources
+        """
+        if not hasattr(troop, 'backpack') or not troop.backpack:
+            logger.info(f"[RESOURCE_DEBUG] Troop {troop.id} has no backpack or it's empty, nothing to deposit")
+            return {"wood": 0, "stone": 0, "iron": 0, "food": 0}
+            
+        # Convert backpack to dictionary if it's not already
+        backpack = troop.backpack
+        if hasattr(backpack, 'dict') and callable(getattr(backpack, 'dict')):
+            backpack = backpack.dict()
+        elif not isinstance(backpack, dict):
+            # If it's not a dict and doesn't have a dict method, try to convert it
+            try:
+                backpack = dict(backpack)
+            except:
+                # If we can't convert it, just log and continue with original
+                logger.error(f"[RESOURCE_DEBUG] Could not convert backpack to dictionary: {troop.backpack}")
+        
+        logger.info(f"[RESOURCE_DEBUG] Depositing resources from troop {troop.id} to village {target_village.id}")
+        logger.info(f"[RESOURCE_DEBUG] Troop backpack before deposit: wood={backpack.get('wood', 0)} stone={backpack.get('stone', 0)} iron={backpack.get('iron', 0)} food={backpack.get('food', 0)}")
+        logger.info(f"[RESOURCE_DEBUG] Village resources before deposit: wood={target_village.resources.wood} stone={target_village.resources.stone} iron={target_village.resources.iron} food={target_village.resources.food}")
+        
+        # Get the village from the repository to ensure we have the correct object
+        village = await self.village_repository.get_by_id(target_village.id)
+        if not village:
+            logger.error(f"Failed to find village {target_village.id} for resource deposit")
+            return {"wood": 0, "stone": 0, "iron": 0, "food": 0}
+            
+        # Calculate available space for each resource
+        deposited = {"wood": 0, "stone": 0, "iron": 0, "food": 0}
+        
+        # Create a new backpack with zero values for existing resources
+        new_backpack = {"wood": 0, "stone": 0, "iron": 0, "food": 0}
+        for resource_type in ["wood", "stone", "iron", "food"]:
+            # Check if resource exists in backpack and has a value greater than 0
+            if resource_type in backpack and backpack.get(resource_type, 0) > 0:
+                logger.info(f"[RESOURCE_DEBUG] Resource type {resource_type} found in troop backpack")
+                
+                amount_to_deposit = backpack.get(resource_type, 0)
+                logger.info(f"[RESOURCE_DEBUG] Amount to deposit for {resource_type}: {amount_to_deposit}")
+                if amount_to_deposit <= 0:
+                    continue
+                    
+                # Calculate available space in the village storage
+                current_amount = getattr(village.resources, resource_type, 0)
+                logger.info(f"[RESOURCE_DEBUG] Current amount of {resource_type} in village: {current_amount}")
+                # Use the calculate_storage_capacity method for the specific resource type
+                storage_capacity = village.calculate_storage_capacity(resource_type)
+                logger.info(f"[RESOURCE_DEBUG] Storage capacity for {resource_type}: {storage_capacity}")
+                available_space = storage_capacity - current_amount
+                logger.info(f"[RESOURCE_DEBUG] Available space for {resource_type}: {available_space}")
+                
+                # Determine how much we can actually deposit
+                actual_deposit = min(amount_to_deposit, available_space)
+                logger.info(f"[RESOURCE_DEBUG] Actual deposit for {resource_type}: {actual_deposit}")
+                if actual_deposit > 0:
+                    # Update village resources
+                    setattr(village.resources, resource_type, current_amount + actual_deposit)
+                    deposited[resource_type] = actual_deposit
+                    
+                    # Log if some resources were lost due to storage limits
+                    if actual_deposit < amount_to_deposit:
+                        lost_amount = amount_to_deposit - actual_deposit
+                        logger.info(f"[RESOURCE_DEBUG] {lost_amount} {resource_type} was lost because village storage is full")
+        
+        # Mark village as changed and save it
+        village.mark_as_changed()
+        try:
+            saved = await self.village_repository.save(village)
+            if saved:
+                logger.info(f"[RESOURCE_DEBUG] Successfully saved village {village.id} after resource deposit")
+            else:
+                logger.error(f"Failed to save village {village.id} after resource deposit")
+        except Exception as e:
+            logger.error(f"Error saving village {village.id} after resource deposit: {str(e)}")
+        
+        # Update the troop's backpack with zero values for all resources
+        await self.troops_repository.update(troop.id, {"backpack": new_backpack})
+        
+        logger.info(f"[RESOURCE_DEBUG] Deposited resources: {deposited}")
+        logger.info(f"[RESOURCE_DEBUG] Village resources after deposit: wood={getattr(village.resources, 'wood', 0)} stone={getattr(village.resources, 'stone', 0)} iron={getattr(village.resources, 'iron', 0)} food={getattr(village.resources, 'food', 0)}")
+        logger.info(f"[RESOURCE_DEBUG] Troop's new backpack: {new_backpack}")
+        
+        return deposited 

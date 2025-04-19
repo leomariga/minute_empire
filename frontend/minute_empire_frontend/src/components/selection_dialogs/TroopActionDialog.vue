@@ -58,7 +58,7 @@
               <div class="resources-grid">
                 <div v-for="resource in ['wood', 'food', 'stone', 'iron']" 
                      :key="resource"
-                     v-if="getBackpackAmount(resource) > 0" 
+                     v-if="getBackpackAmount(resource) !== undefined" 
                      class="mini-resource">
                   <v-icon size="14" :color="resourceColor(resource)">{{ resourceIcon(resource) }}</v-icon>
                   <span>{{ formatNumber(getBackpackAmount(resource)) }}</span>
@@ -234,7 +234,7 @@ export default {
       
       // Check if any resources are being carried
       return ['wood', 'food', 'stone', 'iron'].some(resource => 
-        this.troop.backpack[resource] && this.troop.backpack[resource] > 0
+        this.troop.backpack[resource] !== undefined && this.troop.backpack[resource] > 0
       );
     },
     
@@ -301,11 +301,12 @@ export default {
     },
     
     getBackpackAmount(resourceType) {
-      if (!this.troop || !this.troop.backpack || !this.troop.backpack[resourceType]) {
+      if (!this.troop || !this.troop.backpack) {
         return 0;
       }
       
-      return this.troop.backpack[resourceType];
+      // Check if the property exists and return its value, or 0 if it doesn't exist
+      return this.troop.backpack[resourceType] !== undefined ? this.troop.backpack[resourceType] : 0;
     },
     
     resourceColor(resourceType) {

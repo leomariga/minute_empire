@@ -129,6 +129,38 @@ const apiService = {
   },
 
   /**
+   * Destroy an item (building or resource field)
+   * @param {Object} options - Destruction options
+   * @param {string} options.villageId - ID of the village
+   * @param {string} options.itemType - Type of item ('field' or 'building')
+   * @param {number} options.slot - Slot number of the item to destroy
+   * @returns {Promise<Object>} Destruction result
+   */
+  async destroyItem(options) {
+    try {
+      console.log('[ApiService] Destroying item with options:', options);
+      
+      if (!options.villageId) {
+        throw new Error('Village ID is required for destruction');
+      }
+      
+      if (!options.itemType || !options.slot) {
+        throw new Error('Item type and slot are required for destruction');
+      }
+      
+      // Format the destroy command
+      const command = `destroy ${options.itemType} in ${options.slot}`;
+      console.log('[ApiService] Formatted destroy command:', command);
+      
+      // Execute the command using the existing method
+      return await this.executeCommand(options.villageId, command);
+    } catch (error) {
+      console.error('[ApiService] Destroy item error:', error.response?.data || error.message);
+      throw error;
+    }
+  },
+
+  /**
    * Get map information including bounds and villages
    * @returns {Promise<Object>} Map data including bounds and villages
    */
